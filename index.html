@@ -63,6 +63,7 @@
   .chart-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; margin-bottom: 4px; }
   .chart-head span:first-child { font-weight: 600; }
   .chart-head span:last-child { color: var(--muted); }
+  .chart-key { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
   .chart svg { width: 100%; height: auto; display: block; }
   .primary { width: 100%; padding: 14px; font-weight: 700; background: var(--ink); color: var(--bg); border: 0; border-radius: 10px; }
   .ghost { padding: 10px 14px; font-weight: 600; color: var(--ink); background: transparent; border: 2px solid var(--line); border-radius: 10px; }
@@ -134,6 +135,7 @@ var DEFAULTS = {
   rideOffset: 0          // subtract this from every start limit on rides
 };
 var CONFIG = JSON.parse(JSON.stringify(DEFAULTS));
+var NEA_HIGH = 150; // NEA Band 3 (High) is 151 and above. Fixed, not one of your settings.
 
 /* ---- Pure logic (no network, no DOM) ---- */
 function getPoints(items, region) {
@@ -360,25 +362,32 @@ if (typeof document !== 'undefined') {
     head.className = 'chart-head';
     var h1 = document.createElement('span');
     h1.textContent = labelFor(p.region) + ', last ' + p.series.length + ' hours';
-    var h2 = document.createElement('span');
-    h2.textContent = 'dashed = ' + lineName + ' ' + lineAt;
-    head.appendChild(h1); head.appendChild(h2);
+    head.appendChild(h1);
     wrap.appendChild(head);
+    var key = document.createElement('p');
+    key.className = 'chart-key';
+    key.textContent = 'Dashed line: ' + lineName + ' ' + lineAt + '. Red line: NEA High, above ' + NEA_HIGH + '.';
+    wrap.appendChild(key);
 
     var W = 320, H = 118, padX = 6, top = 18, base = 92;
-    var maxv = CONFIG.stopAbove;
+    var maxv = Math.max(NEA_HIGH, CONFIG.stopAbove);
     p.series.forEach(function (s) { if (s.v > maxv) maxv = s.v; });
     maxv = maxv * 1.05;
     var n = p.series.length, slot = (W - padX * 2) / n, bw = Math.min(36, slot - (n > 8 ? 8 : 10));
     var fs = n > 8 ? 10 : 11;
     var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
       'aria-label': 'Last ' + n + ' hourly readings: ' + p.series.map(function (s) { return s.v; }).join(', ') });
+    var ny = base - NEA_HIGH / maxv * (base - top);
+    svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ny, y2: ny, 'stroke-width': 1.5, style: 'stroke:var(--stop)' }));
+    var nl = svgEl('text', { x: padX, y: ny - 4, 'text-anchor': 'start', 'font-size': 10, 'font-weight': 600, style: 'fill:var(--stop)' });
+    nl.textContent = 'NEA High';
+    svg.appendChild(nl);
     var ly = base - lineAt / maxv * (base - top);
     svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ly, y2: ly, 'stroke-dasharray': '4 3', 'stroke-width': 1.5, style: 'stroke:var(--muted)' }));
     p.series.forEach(function (s, i) {
       var h = Math.max(2, s.v / maxv * (base - top));
       var x = padX + i * slot + (slot - bw) / 2, y = base - h;
-      var cls = s.v <= lineAt ? 'go' : (s.v <= CONFIG.stopAbove ? 'wait' : 'stop');
+      var cls = s.v <= lineAt ? 'go' : (s.v <= NEA_HIGH ? 'wait' : 'stop');
       svg.appendChild(svgEl('rect', { x: x, y: y, width: bw, height: h, rx: 3, style: 'fill:var(--' + cls + ')' }));
       var val = svgEl('text', { x: x + bw / 2, y: y - 4, 'text-anchor': 'middle', 'font-size': fs, 'font-weight': 600, style: 'fill:var(--ink)' });
       val.textContent = s.v;
