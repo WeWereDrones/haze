@@ -72,6 +72,10 @@
   }
   .row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .row:last-child { border-bottom: 0; }
+  #f-rows .row:last-child { border-bottom: 1px solid var(--line); }
+  .row .c-go { color: var(--go); }
+  .row .c-wait { color: var(--wait); }
+  .row .c-stop { color: var(--stop); }
   .row span:first-child { color: var(--muted); }
   .row span:last-child { font-weight: 600; text-align: right; }
   .warn { color: var(--stop); font-weight: 600; margin: 0 0 16px; }
@@ -101,10 +105,7 @@
 <p class="warn" id="warn" hidden></p>
 
 <div class="facts" id="facts" hidden>
-  <div class="row"><span>Region</span><span id="f-region"></span></div>
-  <div class="row"><span>PM2.5 now</span><span id="f-now"></span></div>
-  <div class="row"><span>Trend</span><span id="f-trend"></span></div>
-  <div class="row"><span>Your limit</span><span id="f-limit"></span></div>
+  <div id="f-rows"></div>
   <div class="row"><span>Reading time</span><span id="f-time"></span></div>
 </div>
 
@@ -119,7 +120,8 @@ var CONFIG = {
   stopAbove: 150,        // Band 3 (High) starts at 151
   trendWindowHours: 2,   // compare latest reading with this many hours earlier
   trendDelta: 5,         // change of this many ug/m3 or more counts as rising/falling
-  staleMinutes: 100      // warn if the latest reading is older than this
+  staleMinutes: 100,     // warn if the latest reading is older than this
+  rideOffset: 0          // subtract this from every start limit on rides (10 = stricter ride)
 };
 
 /* ---- Pure logic (no network, no DOM) ---- */
@@ -165,6 +167,43 @@ function decide(items, region, nowMs, cfg) {
   };
 }
 
+/* Apply the rule to each region separately; the worst region decides. */
+function decideMany(items, regions, nowMs, cfg, limitOffset) {
+  cfg = cfg || CONFIG;
+  var off = limitOffset || 0;
+  var c = {};
+  for (var k in cfg) c[k] = cfg[k];
+  c.limits = {
+    falling: cfg.limits.falling - off,
+    flat: cfg.limits.flat - off,
+    rising: cfg.limits.rising - off
+  };
+  var rank = { go: 1, wait: 2, stop: 3 };
+  var parts = [], worst = null, stale = false, ageMin = 0;
+  for (var i = 0; i < regions.length; i++) {
+    var d = decide(items, regions[i], nowMs, c);
+    if (d.verdict === 'none') {
+      return { verdict: 'none', reason: 'No ' + regions[i] + ' reading returned.', parts: [] };
+    }
+    d.region = regions[i];
+    parts.push(d);
+    if (!worst || rank[d.verdict] > rank[worst.verdict]) worst = d;
+    if (d.stale) stale = true;
+    if (d.ageMin > ageMin) ageMin = d.ageMin;
+  }
+  var name = worst.region.charAt(0).toUpperCase() + worst.region.slice(1);
+  var reason;
+  if (worst.verdict === 'go') {
+    reason = regions.length > 1 ? 'All regions are under their limits.' : worst.reason;
+  } else {
+    reason = (regions.length > 1 ? name + ': ' : '') + worst.reason;
+  }
+  return {
+    verdict: worst.verdict, reason: reason, parts: parts, worst: worst,
+    timestamp: parts[0].timestamp, ageMin: ageMin, stale: stale
+  };
+}
+
 /* ---- UI ---- */
 if (typeof document !== 'undefined') {
   var API = 'https://api-open.data.gov.sg/v2/real-time/api/pm25';
@@ -199,20 +238,36 @@ if (typeof document !== 'undefined') {
     return items;
   }
   async function run() {
-    var region = mode === 'ride' ? 'east' : 'south';
+    var ride = mode === 'ride';
+    var regions = ride ? ['south', 'east'] : ['south'];
+    var labels = {
+      south: ride ? 'South (Downtown)' : 'South (walk and swim)',
+      east: 'East (ECP to Changi)'
+    };
     show('none', '...', 'Checking NEA.');
     $('facts').hidden = true;
     $('warn').hidden = true;
     try {
       var items = await getItems();
-      var d = decide(items, region, Date.now(), CONFIG);
+      var d = decideMany(items, regions, Date.now(), CONFIG, ride ? CONFIG.rideOffset : 0);
       if (d.verdict === 'none') { show('none', 'NO DATA', d.reason + ' Check haze.gov.sg.'); return; }
       show(d.verdict, d.verdict.toUpperCase(), d.reason);
-      $('f-region').textContent = region === 'east' ? 'East (ride)' : 'South (walk and swim)';
-      $('f-now').textContent = d.value + ' \u00b5g/m\u00b3';
-      $('f-trend').textContent = d.delta === null ? 'unknown, treated as flat'
-        : d.trend + ' (' + (d.delta > 0 ? '+' : '') + d.delta + ' in ' + CONFIG.trendWindowHours + 'h)';
-      $('f-limit').textContent = d.limit + ' \u00b5g/m\u00b3';
+      var rows = $('f-rows');
+      rows.textContent = '';
+      d.parts.forEach(function (p) {
+        var row = document.createElement('div');
+        row.className = 'row';
+        var a = document.createElement('span');
+        a.textContent = labels[p.region];
+        var b = document.createElement('span');
+        b.className = 'c-' + p.verdict;
+        var tr = p.delta === null ? 'trend unknown'
+          : p.trend + ' ' + (p.delta > 0 ? '+' : '') + p.delta;
+        b.textContent = p.value + ', ' + tr + ', limit ' + p.limit;
+        row.appendChild(a);
+        row.appendChild(b);
+        rows.appendChild(row);
+      });
       $('f-time').textContent = sgTime(d.timestamp) + ', ' + d.ageMin + ' min ago';
       $('facts').hidden = false;
       if (d.stale) {
