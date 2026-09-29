@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#14181c">
+<title>Haze check</title>
+<style>
+  :root {
+    --bg: #f3f5f4;
+    --ink: #14181c;
+    --muted: #5b666e;
+    --line: #d5dbd8;
+    --go: #17753f;
+    --wait: #b06a00;
+    --stop: #b3261e;
+    --card: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181c;
+      --ink: #eef2f0;
+      --muted: #97a3a9;
+      --line: #2b343a;
+      --go: #4fd08a;
+      --wait: #f0b24a;
+      --stop: #ff8a80;
+      --card: #1b2126;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+    padding: 20px 20px 32px;
+    max-width: 520px;
+    margin: 0 auto;
+    line-height: 1.4;
+  }
+  .modes { display: flex; gap: 8px; margin-bottom: 28px; }
+  .modes button {
+    flex: 1;
+    padding: 12px 8px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--ink);
+    background: transparent;
+    border: 2px solid var(--line);
+    border-radius: 10px;
+  }
+  .modes button[aria-pressed="true"] { border-color: var(--ink); }
+  .modes button:focus-visible, .refresh:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+  .verdict {
+    font-size: clamp(72px, 26vw, 128px);
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    line-height: 0.95;
+    margin: 0 0 8px;
+  }
+  .verdict.go { color: var(--go); }
+  .verdict.wait { color: var(--wait); }
+  .verdict.stop { color: var(--stop); }
+  .verdict.none { color: var(--muted); }
+  .reason { font-size: 20px; font-weight: 600; margin: 0 0 24px; }
+  .facts {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 4px 16px;
+    margin: 0 0 20px;
+  }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row span:first-child { color: var(--muted); }
+  .row span:last-child { font-weight: 600; text-align: right; }
+  .warn { color: var(--stop); font-weight: 600; margin: 0 0 16px; }
+  .refresh {
+    width: 100%;
+    padding: 14px;
+    font: inherit;
+    font-weight: 700;
+    background: var(--ink);
+    color: var(--bg);
+    border: 0;
+    border-radius: 10px;
+  }
+  .note { color: var(--muted); font-size: 13px; margin-top: 16px; }
+  .note a { color: inherit; }
+</style>
+</head>
+<body>
+
+<div class="modes" role="group" aria-label="Session">
+  <button id="m-swim" aria-pressed="true">Walk and swim</button>
+  <button id="m-ride" aria-pressed="false">Ride</button>
+</div>
+
+<h1 class="verdict none" id="verdict" aria-live="polite">...</h1>
+<p class="reason" id="reason">Checking NEA.</p>
+<p class="warn" id="warn" hidden></p>
+
+<div class="facts" id="facts" hidden>
+  <div class="row"><span>Region</span><span id="f-region"></span></div>
+  <div class="row"><span>PM2.5 now</span><span id="f-now"></span></div>
+  <div class="row"><span>Trend</span><span id="f-trend"></span></div>
+  <div class="row"><span>Your limit</span><span id="f-limit"></span></div>
+  <div class="row"><span>Reading time</span><span id="f-time"></span></div>
+</div>
+
+<button class="refresh" id="refresh">Check again</button>
+
+<p class="note">Data: NEA 1-hr PM2.5 via data.gov.sg. If this page shows an error, open <a href="https://www.haze.gov.sg/">haze.gov.sg</a> and read the 1-hr PM2.5 tab.</p>
+
+<script>
+/* ---- Your rule. Edit these numbers to tune it. ---- */
+var CONFIG = {
+  limits: { falling: 90, flat: 80, rising: 75 }, // start limits in ug/m3
+  stopAbove: 150,        // Band 3 (High) starts at 151
+  trendWindowHours: 2,   // compare latest reading with this many hours earlier
+  trendDelta: 5,         // change of this many ug/m3 or more counts as rising/falling
+  staleMinutes: 100      // warn if the latest reading is older than this
+};
+
+/* ---- Pure logic (no network, no DOM) ---- */
+function decide(items, region, nowMs, cfg) {
+  cfg = cfg || CONFIG;
+  var pts = [];
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    var v = it && it.readings && it.readings.pm25_one_hourly && it.readings.pm25_one_hourly[region];
+    var t = Date.parse(it.timestamp);
+    if (typeof v === 'number' && !isNaN(t)) pts.push({ t: t, v: v });
+  }
+  pts.sort(function (a, b) { return a.t - b.t; });
+  if (!pts.length) return { verdict: 'none', reason: 'No readings returned.' };
+
+  var latest = pts[pts.length - 1];
+  var target = latest.t - cfg.trendWindowHours * 3600000;
+  var ref = null;
+  for (var j = pts.length - 2; j >= 0; j--) {
+    if (pts[j].t <= target + 60000) { ref = pts[j]; break; }
+  }
+  var trend = 'flat', delta = null;
+  if (ref) {
+    delta = latest.v - ref.v;
+    if (delta >= cfg.trendDelta) trend = 'rising';
+    else if (delta <= -cfg.trendDelta) trend = 'falling';
+  }
+  var limit = cfg.limits[trend];
+  var ageMin = Math.round((nowMs - latest.t) / 60000);
+  var stale = ageMin > cfg.staleMinutes;
+
+  var verdict, reason;
+  if (latest.v > cfg.stopAbove) {
+    verdict = 'stop'; reason = 'High band. Do not go out.';
+  } else if (latest.v <= limit) {
+    verdict = 'go'; reason = 'Under your limit of ' + limit + '.';
+  } else {
+    verdict = 'wait'; reason = 'Over your limit of ' + limit + '. Re-check in an hour.';
+  }
+  return {
+    verdict: verdict, reason: reason, value: latest.v, trend: trend, delta: delta,
+    limit: limit, timestamp: latest.t, ageMin: ageMin, stale: stale
+  };
+}
+
+/* ---- UI ---- */
+if (typeof document !== 'undefined') {
+  var API = 'https://api-open.data.gov.sg/v2/real-time/api/pm25';
+  var mode = 'swim';
+  var $ = function (id) { return document.getElementById(id); };
+
+  function sgToday() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore' }).format(new Date());
+  }
+  function sgTime(ms) {
+    return new Intl.DateTimeFormat('en-SG', {
+      timeZone: 'Asia/Singapore', hour: 'numeric', minute: '2-digit', hour12: true
+    }).format(new Date(ms));
+  }
+  function show(v, text, why) {
+    var el = $('verdict');
+    el.className = 'verdict ' + v;
+    el.textContent = text;
+    $('reason').textContent = why;
+  }
+  async function getItems() {
+    var r = await fetch(API + '?date=' + sgToday(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var j = await r.json();
+    var items = (j.data && j.data.items) || [];
+    if (items.length < 2) {
+      // Just after midnight: fall back to the latest reading only
+      var r2 = await fetch(API, { cache: 'no-store' });
+      var j2 = await r2.json();
+      items = items.concat((j2.data && j2.data.items) || []);
+    }
+    return items;
+  }
+  async function run() {
+    var region = mode === 'ride' ? 'east' : 'south';
+    show('none', '...', 'Checking NEA.');
+    $('facts').hidden = true;
+    $('warn').hidden = true;
+    try {
+      var items = await getItems();
+      var d = decide(items, region, Date.now(), CONFIG);
+      if (d.verdict === 'none') { show('none', 'NO DATA', d.reason + ' Check haze.gov.sg.'); return; }
+      show(d.verdict, d.verdict.toUpperCase(), d.reason);
+      $('f-region').textContent = region === 'east' ? 'East (ride)' : 'South (walk and swim)';
+      $('f-now').textContent = d.value + ' \u00b5g/m\u00b3';
+      $('f-trend').textContent = d.delta === null ? 'unknown, treated as flat'
+        : d.trend + ' (' + (d.delta > 0 ? '+' : '') + d.delta + ' in ' + CONFIG.trendWindowHours + 'h)';
+      $('f-limit').textContent = d.limit + ' \u00b5g/m\u00b3';
+      $('f-time').textContent = sgTime(d.timestamp) + ', ' + d.ageMin + ' min ago';
+      $('facts').hidden = false;
+      if (d.stale) {
+        $('warn').textContent = 'This reading is ' + d.ageMin + ' minutes old. Check haze.gov.sg before relying on it.';
+        $('warn').hidden = false;
+      }
+    } catch (e) {
+      show('none', 'ERROR', 'Could not load the NEA feed. Open haze.gov.sg and read the South 1-hr PM2.5 number.');
+    }
+  }
+  function setMode(m) {
+    mode = m;
+    $('m-swim').setAttribute('aria-pressed', m === 'swim');
+    $('m-ride').setAttribute('aria-pressed', m === 'ride');
+    run();
+  }
+  $('m-swim').addEventListener('click', function () { setMode('swim'); });
+  $('m-ride').addEventListener('click', function () { setMode('ride'); });
+  $('refresh').addEventListener('click', run);
+  run();
+}
+</script>
+</body>
+</html>
