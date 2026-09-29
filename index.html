@@ -130,6 +130,7 @@ var DEFAULTS = {
   trendWindowHours: 2,   // compare latest reading with this many hours earlier
   trendDelta: 5,         // change of this many ug/m3 or more counts as rising/falling
   staleMinutes: 120,     // warn if the latest reading is older than this
+  historyPoints: 12,     // hourly bars shown in each chart
   rideOffset: 0          // subtract this from every start limit on rides
 };
 var CONFIG = JSON.parse(JSON.stringify(DEFAULTS));
@@ -191,7 +192,7 @@ function decide(items, region, nowMs, cfg) {
   return {
     verdict: verdict, reason: reason, value: latest.v, trend: trend, delta: delta,
     limit: limit, timestamp: latest.t, pub: latest.pub, ageMin: ageMin,
-    stale: ageMin > cfg.staleMinutes, series: pts.slice(-6)
+    stale: ageMin > cfg.staleMinutes, series: pts.slice(-cfg.historyPoints)
   };
 }
 
@@ -250,7 +251,7 @@ function decideMid(items, regions, nowMs, cfg) {
     parts.push({
       region: regions[i], verdict: verdict, why: why, value: latest.v, delta1h: d1, projected: proj,
       timestamp: latest.t, pub: latest.pub, ageMin: ageMin, stale: ageMin > cfg.staleMinutes,
-      series: pts.slice(-6)
+      series: pts.slice(-cfg.historyPoints)
     });
   }
   return summarise(parts, regions, function (w, name, many) {
@@ -319,7 +320,7 @@ if (typeof document !== 'undefined') {
   async function getItems() {
     var j = await fetchJson(API + '?date=' + fmtDate.format(new Date()));
     var items = (j.data && j.data.items) || [];
-    if (items.length < 8) {
+    if (items.length < 14) {
       try {
         var jy = await fetchJson(API + '?date=' + fmtDate.format(new Date(Date.now() - 86400000)));
         items = ((jy.data && jy.data.items) || []).concat(items);
@@ -333,7 +334,7 @@ if (typeof document !== 'undefined') {
   }
 
   function trim(items) {
-    var keep = items.slice().sort(function (a, b) { return Date.parse(a.timestamp) - Date.parse(b.timestamp); }).slice(-14);
+    var keep = items.slice().sort(function (a, b) { return Date.parse(a.timestamp) - Date.parse(b.timestamp); }).slice(-16);
     return keep.map(function (it) {
       var r = (it.readings && it.readings.pm25_one_hourly) || {};
       return { timestamp: it.timestamp, updatedTimestamp: it.updatedTimestamp,
@@ -368,23 +369,24 @@ if (typeof document !== 'undefined') {
     var maxv = CONFIG.stopAbove;
     p.series.forEach(function (s) { if (s.v > maxv) maxv = s.v; });
     maxv = maxv * 1.05;
-    var n = p.series.length, slot = (W - padX * 2) / n, bw = Math.min(36, slot - 10);
+    var n = p.series.length, slot = (W - padX * 2) / n, bw = Math.min(36, slot - (n > 8 ? 8 : 10));
+    var fs = n > 8 ? 10 : 11;
     var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
       'aria-label': 'Last ' + n + ' hourly readings: ' + p.series.map(function (s) { return s.v; }).join(', ') });
+    var ly = base - lineAt / maxv * (base - top);
+    svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ly, y2: ly, 'stroke-dasharray': '4 3', 'stroke-width': 1.5, style: 'stroke:var(--muted)' }));
     p.series.forEach(function (s, i) {
       var h = Math.max(2, s.v / maxv * (base - top));
       var x = padX + i * slot + (slot - bw) / 2, y = base - h;
       var cls = s.v <= lineAt ? 'go' : (s.v <= CONFIG.stopAbove ? 'wait' : 'stop');
       svg.appendChild(svgEl('rect', { x: x, y: y, width: bw, height: h, rx: 3, style: 'fill:var(--' + cls + ')' }));
-      var val = svgEl('text', { x: x + bw / 2, y: y - 4, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 600, style: 'fill:var(--ink)' });
+      var val = svgEl('text', { x: x + bw / 2, y: y - 4, 'text-anchor': 'middle', 'font-size': fs, 'font-weight': 600, style: 'fill:var(--ink)' });
       val.textContent = s.v;
       svg.appendChild(val);
-      var lab = svgEl('text', { x: x + bw / 2, y: 108, 'text-anchor': 'middle', 'font-size': 11, style: 'fill:var(--muted)' });
+      var lab = svgEl('text', { x: x + bw / 2, y: 108, 'text-anchor': 'middle', 'font-size': fs, style: 'fill:var(--muted)' });
       lab.textContent = sgHour(s.t);
       svg.appendChild(lab);
     });
-    var ly = base - lineAt / maxv * (base - top);
-    svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ly, y2: ly, 'stroke-dasharray': '4 3', 'stroke-width': 1.5, style: 'stroke:var(--muted)' }));
     wrap.appendChild(svg);
     return wrap;
   }
