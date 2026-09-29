@@ -28,6 +28,13 @@
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     min-height: 100vh; padding: 20px 20px 36px; max-width: 520px; margin: 0 auto; line-height: 1.4;
   }
+  body { touch-action: pan-y pinch-zoom; }
+  main { display: block; }
+  @keyframes slide-in-r { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+  @keyframes slide-in-l { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+  #page.in-r { animation: slide-in-r 0.22s ease-out; }
+  #page.in-l { animation: slide-in-l 0.22s ease-out; }
+  @media (prefers-reduced-motion: reduce) { #page.in-r, #page.in-l { animation: none; } }
   button { font: inherit; }
   button:focus-visible, input:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
   .modes { display: flex; gap: 8px; margin-bottom: 28px; }
@@ -91,6 +98,7 @@
   <button data-mode="mid" aria-pressed="false">Mid-session</button>
 </div>
 
+<main id="page">
 <h1 class="verdict none" id="verdict" aria-live="polite">...</h1>
 <p class="reason" id="reason">Checking NEA.</p>
 <p class="warn" id="warn" hidden></p>
@@ -102,6 +110,7 @@
 </div>
 
 <div class="charts" id="charts"></div>
+</main>
 
 <button class="primary" id="refresh">Check again</button>
 <div class="actions"><button class="ghost" id="toggle-settings" aria-expanded="false">Limits</button></div>
@@ -120,7 +129,7 @@
   <p class="smsg" id="s-msg"></p>
 </div>
 
-<p class="note">Data: NEA 1-hr PM2.5 via data.gov.sg. Each reading is stamped on the hour and appears 15 to 45 minutes later. If this page shows an error, open <a href="https://www.haze.gov.sg/">haze.gov.sg</a> and read the 1-hr PM2.5 tab.</p>
+<p class="note">Swipe left or right to change tab. Data: NEA 1-hr PM2.5 via data.gov.sg. Each reading is stamped on the hour and appears 15 to 45 minutes later. If this page shows an error, open <a href="https://www.haze.gov.sg/">haze.gov.sg</a> and read the 1-hr PM2.5 tab.</p>
 
 <script>
 /* ---- Your rule. Change these in the Limits panel, or edit the defaults here. ---- */
@@ -482,8 +491,17 @@ if (typeof document !== 'undefined') {
     }
   }
 
-  function setMode(m) {
+  function animate(dir) {
+    var pg = $('page');
+    pg.classList.remove('in-r', 'in-l');
+    if (!dir) return;
+    void pg.offsetWidth;
+    pg.classList.add(dir > 0 ? 'in-r' : 'in-l');
+  }
+
+  function setMode(m, dir) {
     mode = m;
+    animate(dir);
     lsSet('hazeMode', m);
     var btns = document.querySelectorAll('.modes button');
     for (var i = 0; i < btns.length; i++) btns[i].setAttribute('aria-pressed', btns[i].getAttribute('data-mode') === m);
@@ -547,6 +565,45 @@ if (typeof document !== 'undefined') {
   $('toggle-settings').addEventListener('click', toggleSettings);
   $('save').addEventListener('click', saveSettings);
   $('reset').addEventListener('click', resetSettings);
+
+  /* Swipe left = next tab, swipe right = previous. No wrap-around. */
+  var SWIPE_MIN = 60;   // px of horizontal travel needed
+  var SWIPE_MAX_MS = 700;
+  var EDGE = 24;        // ignore swipes that start this close to a screen edge (Android back gesture)
+  var touch = null;
+
+  function swipeTo(step) {
+    var i = MODES.indexOf(mode) + step;
+    if (i < 0 || i >= MODES.length) return;
+    setMode(MODES[i], step);
+  }
+  document.addEventListener('touchstart', function (e) {
+    touch = null;
+    if (!e.touches || e.touches.length !== 1) return;
+    var tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    var t = e.touches[0];
+    if (t.clientX < EDGE || t.clientX > window.innerWidth - EDGE) return;
+    touch = { x: t.clientX, y: t.clientY, at: Date.now() };
+  }, { passive: true });
+  document.addEventListener('touchend', function (e) {
+    if (!touch) return;
+    var t = e.changedTouches && e.changedTouches[0];
+    var s = touch;
+    touch = null;
+    if (!t) return;
+    var dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if (Date.now() - s.at > SWIPE_MAX_MS) return;
+    if (Math.abs(dx) < SWIPE_MIN || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    swipeTo(dx < 0 ? 1 : -1);
+  }, { passive: true });
+  document.addEventListener('touchcancel', function () { touch = null; }, { passive: true });
+  document.addEventListener('keydown', function (e) {   // laptop testing: arrow keys
+    var tag = e.target && e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (e.key === 'ArrowRight') swipeTo(1);
+    else if (e.key === 'ArrowLeft') swipeTo(-1);
+  });
 
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden && Date.now() - lastRun > 60000) run();
