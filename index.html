@@ -70,6 +70,12 @@
   .chart-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; margin-bottom: 4px; }
   .chart-head span:first-child { font-weight: 600; }
   .chart-head span:last-child { color: var(--muted); }
+  .range { display: flex; gap: 6px; margin: 0 0 10px; }
+  .range button {
+    padding: 8px 14px; font-weight: 600; font-size: 14px; color: var(--ink);
+    background: transparent; border: 2px solid var(--line); border-radius: 8px;
+  }
+  .range button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   .chart-key { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
   .chart svg { width: 100%; height: auto; display: block; }
   .primary { width: 100%; padding: 14px; font-weight: 700; background: var(--ink); color: var(--bg); border: 0; border-radius: 10px; }
@@ -109,6 +115,10 @@
   <div class="row"><span>Checked</span><span id="f-checked"></span></div>
 </div>
 
+<div class="range" id="range" role="group" aria-label="Chart range" hidden>
+  <button data-range="12" aria-pressed="true">Last 12h</button>
+  <button data-range="48" aria-pressed="false">Last 48h</button>
+</div>
 <div class="charts" id="charts"></div>
 </main>
 
@@ -140,7 +150,7 @@ var DEFAULTS = {
   trendWindowHours: 2,   // compare latest reading with this many hours earlier
   trendDelta: 5,         // change of this many ug/m3 or more counts as rising/falling
   staleMinutes: 120,     // warn if the latest reading is older than this
-  historyPoints: 12,     // hourly bars shown in each chart
+  historyMax: 48,        // hourly readings kept per region (the chart shows 12 or 48)
   rideOffset: 0          // subtract this from every start limit on rides
 };
 var CONFIG = JSON.parse(JSON.stringify(DEFAULTS));
@@ -203,7 +213,7 @@ function decide(items, region, nowMs, cfg) {
   return {
     verdict: verdict, reason: reason, value: latest.v, trend: trend, delta: delta,
     limit: limit, timestamp: latest.t, pub: latest.pub, ageMin: ageMin,
-    stale: ageMin > cfg.staleMinutes, series: pts.slice(-cfg.historyPoints)
+    stale: ageMin > cfg.staleMinutes, series: pts.slice(-cfg.historyMax)
   };
 }
 
@@ -262,7 +272,7 @@ function decideMid(items, regions, nowMs, cfg) {
     parts.push({
       region: regions[i], verdict: verdict, why: why, value: latest.v, delta1h: d1, projected: proj,
       timestamp: latest.t, pub: latest.pub, ageMin: ageMin, stale: ageMin > cfg.staleMinutes,
-      series: pts.slice(-cfg.historyPoints)
+      series: pts.slice(-cfg.historyMax)
     });
   }
   return summarise(parts, regions, function (w, name, many) {
@@ -299,12 +309,19 @@ if (typeof document !== 'undefined') {
   var $ = function (id) { return document.getElementById(id); };
   var mode = MODES.indexOf(lsGet('hazeMode')) >= 0 ? lsGet('hazeMode') : 'swim';
   var lastRun = 0, runId = 0;
+  var chartRange = 12;   // bars shown; always starts at 12, toggle to 48
+  var lastD = null;
 
   try { applySaved(CONFIG, JSON.parse(lsGet('hazeCfg'))); } catch (e) {}
 
   var fmtDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Singapore' });
   var fmtTime = new Intl.DateTimeFormat('en-SG', { timeZone: 'Asia/Singapore', hour: 'numeric', minute: '2-digit', hour12: true });
   var fmtHour = new Intl.DateTimeFormat('en-SG', { timeZone: 'Asia/Singapore', hour: 'numeric', hour12: true });
+  var fmtHour24 = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Singapore', hour: '2-digit', hourCycle: 'h23' });
+  var fmtDay = new Intl.DateTimeFormat('en-SG', { timeZone: 'Asia/Singapore', weekday: 'short' });
+  function sgHourNum(ms) { return parseInt(fmtHour24.format(new Date(ms)), 10) % 24; }
+  function sgDay(ms) { return fmtDay.format(new Date(ms)); }
+  function sgHourLong(ms) { return fmtHour.format(new Date(ms)).toLowerCase(); }
   function sgTime(ms) { return fmtTime.format(new Date(ms)); }
   function sgHour(ms) {
     var p = fmtHour.format(new Date(ms)).toLowerCase().replace(/\s/g, '');
@@ -329,13 +346,15 @@ if (typeof document !== 'undefined') {
   }
 
   async function getItems() {
-    var j = await fetchJson(API + '?date=' + fmtDate.format(new Date()));
-    var items = (j.data && j.data.items) || [];
-    if (items.length < 14) {
-      try {
-        var jy = await fetchJson(API + '?date=' + fmtDate.format(new Date(Date.now() - 86400000)));
-        items = ((jy.data && jy.data.items) || []).concat(items);
-      } catch (e) {}
+    var day = function (back) { return fmtDate.format(new Date(Date.now() - back * 86400000)); };
+    var res = await Promise.all([
+      fetchJson(API + '?date=' + day(0)),
+      fetchJson(API + '?date=' + day(1)).catch(function () { return null; }),
+      fetchJson(API + '?date=' + day(2)).catch(function () { return null; })
+    ]);
+    var items = [];
+    for (var i = res.length - 1; i >= 0; i--) {
+      if (res[i] && res[i].data && res[i].data.items) items = items.concat(res[i].data.items);
     }
     if (!items.length) {
       var jl = await fetchJson(API);
@@ -345,7 +364,7 @@ if (typeof document !== 'undefined') {
   }
 
   function trim(items) {
-    var keep = items.slice().sort(function (a, b) { return Date.parse(a.timestamp) - Date.parse(b.timestamp); }).slice(-16);
+    var keep = items.slice().sort(function (a, b) { return Date.parse(a.timestamp) - Date.parse(b.timestamp); }).slice(-52);
     return keep.map(function (it) {
       var r = (it.readings && it.readings.pm25_one_hourly) || {};
       return { timestamp: it.timestamp, updatedTimestamp: it.updatedTimestamp,
@@ -365,27 +384,37 @@ if (typeof document !== 'undefined') {
   }
 
   function buildChart(p, lineAt, lineName) {
+    var series = p.series.slice(-chartRange);
+    var n = series.length;
+    var peak = 0;
+    for (var q = 1; q < n; q++) if (series[q].v > series[peak].v) peak = q;
+    var dense = n > 14;
+
     var wrap = document.createElement('div');
     wrap.className = 'chart';
     var head = document.createElement('div');
     head.className = 'chart-head';
     var h1 = document.createElement('span');
-    h1.textContent = labelFor(p.region) + ', last ' + p.series.length + ' hours';
+    h1.textContent = labelFor(p.region) + ', last ' + n + ' hours';
     head.appendChild(h1);
     wrap.appendChild(head);
     var key = document.createElement('p');
     key.className = 'chart-key';
-    key.textContent = 'Dashed line: ' + lineName + ' ' + lineAt + '. Red line: NEA High, above ' + NEA_HIGH + '.';
+    key.textContent = 'Dashed line: ' + lineName + ' ' + lineAt + '. Red line: NEA High, above ' + NEA_HIGH +
+      '. Peak ' + series[peak].v + ', ' + sgDay(series[peak].t) + ' ' + sgHourLong(series[peak].t) + '.';
     wrap.appendChild(key);
 
     var W = 320, H = 118, padX = 6, top = 18, base = 92;
     var maxv = Math.max(NEA_HIGH, CONFIG.stopAbove);
-    p.series.forEach(function (s) { if (s.v > maxv) maxv = s.v; });
+    series.forEach(function (s) { if (s.v > maxv) maxv = s.v; });
     maxv = maxv * 1.05;
-    var n = p.series.length, slot = (W - padX * 2) / n, bw = Math.min(36, slot - (n > 8 ? 8 : 10));
+    var slot = (W - padX * 2) / n;
+    var bw = Math.min(36, slot - (n > 24 ? 1.5 : (n > 8 ? 8 : 10)));
     var fs = n > 8 ? 10 : 11;
     var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
-      'aria-label': 'Last ' + n + ' hourly readings: ' + p.series.map(function (s) { return s.v; }).join(', ') });
+      'aria-label': 'Last ' + n + ' hourly readings. Latest ' + series[n - 1].v + ', peak ' + series[peak].v + '.' +
+        (dense ? '' : ' Values: ' + series.map(function (s) { return s.v; }).join(', ')) });
+
     var ny = base - NEA_HIGH / maxv * (base - top);
     svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ny, y2: ny, 'stroke-width': 1.5, style: 'stroke:var(--stop)' }));
     var nl = svgEl('text', { x: padX, y: ny - 4, 'text-anchor': 'start', 'font-size': 10, 'font-weight': 600, style: 'fill:var(--stop)' });
@@ -393,20 +422,54 @@ if (typeof document !== 'undefined') {
     svg.appendChild(nl);
     var ly = base - lineAt / maxv * (base - top);
     svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ly, y2: ly, 'stroke-dasharray': '4 3', 'stroke-width': 1.5, style: 'stroke:var(--muted)' }));
-    p.series.forEach(function (s, i) {
+
+    if (dense) {   // thin divider at each midnight
+      series.forEach(function (s, i) {
+        if (i > 0 && sgHourNum(s.t) === 0) {
+          var mx = padX + i * slot;
+          svg.appendChild(svgEl('line', { x1: mx, x2: mx, y1: top - 4, y2: base + 4, 'stroke-width': 1, style: 'stroke:var(--line)' }));
+        }
+      });
+    }
+
+    var clampX = function (x) { return Math.max(padX + 10, Math.min(W - padX - 10, x)); };
+    series.forEach(function (s, i) {
       var h = Math.max(2, s.v / maxv * (base - top));
-      var x = padX + i * slot + (slot - bw) / 2, y = base - h;
+      var x = padX + i * slot + (slot - bw) / 2, y = base - h, cx = x + bw / 2;
       var cls = s.v <= lineAt ? 'go' : (s.v <= NEA_HIGH ? 'wait' : 'stop');
-      svg.appendChild(svgEl('rect', { x: x, y: y, width: bw, height: h, rx: 3, style: 'fill:var(--' + cls + ')' }));
-      var val = svgEl('text', { x: x + bw / 2, y: y - 4, 'text-anchor': 'middle', 'font-size': fs, 'font-weight': 600, style: 'fill:var(--ink)' });
-      val.textContent = s.v;
-      svg.appendChild(val);
-      var lab = svgEl('text', { x: x + bw / 2, y: 108, 'text-anchor': 'middle', 'font-size': fs, style: 'fill:var(--muted)' });
-      lab.textContent = sgHour(s.t);
-      svg.appendChild(lab);
+      svg.appendChild(svgEl('rect', { x: x, y: y, width: bw, height: h, rx: bw > 8 ? 3 : 1, style: 'fill:var(--' + cls + ')' }));
+
+      var showVal = !dense || i === n - 1 || (i === peak && n - 1 - i > 4);
+      if (showVal) {
+        var val = svgEl('text', { x: clampX(cx), y: y - 4, 'text-anchor': 'middle', 'font-size': fs, 'font-weight': 600, style: 'fill:var(--ink)' });
+        val.textContent = s.v;
+        svg.appendChild(val);
+      }
+      var label = '';
+      if (!dense) label = sgHour(s.t);
+      else if (sgHourNum(s.t) === 0) label = sgDay(s.t);
+      else if (sgHourNum(s.t) % 6 === 0) label = sgHour(s.t);
+      if (label) {
+        var lab = svgEl('text', { x: clampX(cx), y: 108, 'text-anchor': 'middle', 'font-size': fs, style: 'fill:var(--muted)' });
+        lab.textContent = label;
+        svg.appendChild(lab);
+      }
     });
     wrap.appendChild(svg);
     return wrap;
+  }
+
+  function renderCharts(d) {
+    var charts = $('charts');
+    charts.textContent = '';
+    var any = false;
+    d.parts.forEach(function (p) {
+      if (!p.series || p.series.length < 2) return;
+      any = true;
+      if (mode === 'mid') charts.appendChild(buildChart(p, CONFIG.easeAbove, 'ease off'));
+      else charts.appendChild(buildChart(p, p.limit, 'limit'));
+    });
+    $('range').hidden = !any;
   }
 
   function render(d, opts) {
@@ -441,13 +504,8 @@ if (typeof document !== 'undefined') {
     $('f-checked').textContent = sgTime(opts.fetchedAt || Date.now()) + (opts.offline ? ' (last good check)' : '');
     $('facts').hidden = false;
 
-    var charts = $('charts');
-    charts.textContent = '';
-    d.parts.forEach(function (p) {
-      if (!p.series || p.series.length < 2) return;
-      if (mode === 'mid') charts.appendChild(buildChart(p, CONFIG.easeAbove, 'ease off'));
-      else charts.appendChild(buildChart(p, p.limit, 'limit'));
-    });
+    lastD = d;
+    renderCharts(d);
 
     if (d.stale) {
       $('warn').textContent = 'This reading is ' + d.ageMin + ' minutes old, older than expected. Check haze.gov.sg before relying on it.';
@@ -471,6 +529,7 @@ if (typeof document !== 'undefined') {
     $('facts').hidden = true;
     $('warn').hidden = true;
     $('charts').textContent = '';
+    $('range').hidden = true;
     try {
       var items = await getItems();
       if (my !== runId) return;
@@ -560,6 +619,16 @@ if (typeof document !== 'undefined') {
   for (var i = 0; i < mbtns.length; i++) {
     (function (b) { b.addEventListener('click', function () { setMode(b.getAttribute('data-mode')); }); })(mbtns[i]);
     mbtns[i].setAttribute('aria-pressed', mbtns[i].getAttribute('data-mode') === mode);
+  }
+  var rbtns = document.querySelectorAll('.range button');
+  for (var r = 0; r < rbtns.length; r++) {
+    (function (b) {
+      b.addEventListener('click', function () {
+        chartRange = Number(b.getAttribute('data-range'));
+        for (var k = 0; k < rbtns.length; k++) rbtns[k].setAttribute('aria-pressed', rbtns[k] === b);
+        if (lastD) renderCharts(lastD);
+      });
+    })(rbtns[r]);
   }
   $('refresh').addEventListener('click', run);
   $('toggle-settings').addEventListener('click', toggleSettings);
