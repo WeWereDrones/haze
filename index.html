@@ -76,7 +76,7 @@
     background: transparent; border: 2px solid var(--line); border-radius: 8px;
   }
   .range button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-  .chart-key { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+  .chart-key { font-size: 12px; color: var(--muted); margin: 0 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chart svg { width: 100%; height: auto; display: block; }
   .primary { width: 100%; padding: 14px; font-weight: 700; background: var(--ink); color: var(--bg); border: 0; border-radius: 10px; }
   .ghost { padding: 10px 14px; font-weight: 600; color: var(--ink); background: transparent; border: 2px solid var(--line); border-radius: 10px; }
@@ -383,7 +383,7 @@ if (typeof document !== 'undefined') {
     return e;
   }
 
-  function buildChart(p, lineAt, lineName) {
+  function buildChart(p, lineAt) {
     var series = p.series.slice(-chartRange);
     var n = series.length;
     var peak = 0;
@@ -395,12 +395,12 @@ if (typeof document !== 'undefined') {
     var head = document.createElement('div');
     head.className = 'chart-head';
     var h1 = document.createElement('span');
-    h1.textContent = labelFor(p.region) + ', last ' + n + ' hours';
+    h1.textContent = labelFor(p.region);
     head.appendChild(h1);
     wrap.appendChild(head);
     var key = document.createElement('p');
     key.className = 'chart-key';
-    key.textContent = 'Dashed line: ' + lineName + ' ' + lineAt + '. Red line: NEA High, above ' + NEA_HIGH +
+    key.textContent = 'Dash=' + lineAt + '. Red=NEA High >' + NEA_HIGH +
       '. Peak ' + series[peak].v + ', ' + sgDay(series[peak].t) + ' ' + sgHourLong(series[peak].t) + '.';
     wrap.appendChild(key);
 
@@ -466,8 +466,8 @@ if (typeof document !== 'undefined') {
     d.parts.forEach(function (p) {
       if (!p.series || p.series.length < 2) return;
       any = true;
-      if (mode === 'mid') charts.appendChild(buildChart(p, CONFIG.easeAbove, 'ease off'));
-      else charts.appendChild(buildChart(p, p.limit, 'limit'));
+      if (mode === 'mid') charts.appendChild(buildChart(p, CONFIG.easeAbove));
+      else charts.appendChild(buildChart(p, p.limit));
     });
     $('range').hidden = !any;
   }
@@ -522,31 +522,92 @@ if (typeof document !== 'undefined') {
     return decideMany(items, ride ? ['south', 'east'] : ['south'], now, CONFIG, ride ? CONFIG.rideOffset : 0);
   }
 
-  async function run() {
+  var RETRY_MS = [0, 1200, 3000];   // waits before each attempt; a phone waking from sleep often fails the first one
+  var FRESH_MS = 120000;            // tab and chart switches reuse data younger than this
+  var mem = null;                   // { items, fetchedAt } from the last good fetch
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function describe(e) {
+    if (!e) return 'unknown error';
+    if (e.name === 'AbortError') return 'the request timed out after 10 seconds';
+    var m = /^HTTP (\d+)/.exec(e.message || '');
+    if (m) return 'NEA returned HTTP ' + m[1] + (m[1] === '429' ? ' (too many requests)' : '');
+    if (e.name === 'TypeError') return 'the network request failed (no signal, or blocked)';
+    return e.message || String(e);
+  }
+
+  async function loadItems(force, my) {
+    if (!force && mem && Date.now() - mem.fetchedAt < FRESH_MS) return mem;
+    var lastErr = null;
+    for (var a = 0; a < RETRY_MS.length; a++) {
+      if (RETRY_MS[a]) {
+        show('none', '...', 'Connecting, attempt ' + (a + 1) + ' of ' + RETRY_MS.length + '.');
+        await sleep(RETRY_MS[a]);
+        if (my !== runId) return null;
+      }
+      try {
+        var items = await getItems();
+        if (my !== runId) return null;
+        mem = { items: items, fetchedAt: Date.now() };
+        lsSet('hazeCache', JSON.stringify({ fetchedAt: mem.fetchedAt, items: trim(items) }));
+        return mem;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    var err = new Error(describe(lastErr));
+    err.network = true;
+    throw err;
+  }
+
+  function showWarn(text) {
+    $('warn').textContent = text;
+    $('warn').hidden = false;
+  }
+
+  async function run(force) {
     var my = ++runId;
-    lastRun = Date.now();
-    show('none', '...', 'Checking NEA.');
-    $('facts').hidden = true;
-    $('warn').hidden = true;
-    $('charts').textContent = '';
-    $('range').hidden = true;
+    var fresh = !force && mem && Date.now() - mem.fetchedAt < FRESH_MS;
+    if (!fresh) lastRun = Date.now();
+    if (!fresh) {
+      show('none', '...', 'Checking NEA.');
+      $('facts').hidden = true;
+      $('warn').hidden = true;
+      $('charts').textContent = '';
+      $('range').hidden = true;
+    }
+
+    var loaded;
     try {
-      var items = await getItems();
-      if (my !== runId) return;
-      var fetchedAt = Date.now();
-      lsSet('hazeCache', JSON.stringify({ fetchedAt: fetchedAt, items: trim(items) }));
-      var d = compute(items);
-      if (d.verdict === 'none') { show('none', 'NO DATA', d.reason + ' Check haze.gov.sg.'); return; }
-      render(d, { fetchedAt: fetchedAt });
+      loaded = await loadItems(force, my);
     } catch (e) {
       if (my !== runId) return;
+      // Could not reach NEA. Fall back to the last good reading, clearly marked as old.
       var cached = null;
       try { cached = JSON.parse(lsGet('hazeCache')); } catch (e2) {}
       if (cached && cached.items && cached.items.length) {
-        var dc = compute(cached.items);
-        if (dc.verdict !== 'none') { render(dc, { offline: true, fetchedAt: cached.fetchedAt }); return; }
+        try {
+          var dc = compute(cached.items);
+          if (dc.verdict !== 'none') {
+            render(dc, { offline: true, fetchedAt: cached.fetchedAt });
+            showWarn('Could not reach NEA: ' + e.message + '.');
+            return;
+          }
+        } catch (e3) {}
       }
-      show('none', 'ERROR', 'Could not load the NEA feed. Open haze.gov.sg and read the South 1-hr PM2.5 number.');
+      show('none', 'ERROR', 'Could not load the NEA feed: ' + e.message + '. Open haze.gov.sg and read the South 1-hr PM2.5 number.');
+      return;
+    }
+    if (!loaded || my !== runId) return;
+
+    // Data arrived. Anything that fails from here on is a bug in the app, not a connection problem.
+    try {
+      var d = compute(loaded.items);
+      if (d.verdict === 'none') { show('none', 'NO DATA', d.reason + ' Check haze.gov.sg.'); return; }
+      render(d, { fetchedAt: loaded.fetchedAt });
+    } catch (e4) {
+      show('none', 'APP ERROR', 'The data loaded but the app failed to show it: ' + (e4 && e4.message ? e4.message : e4) + '. Check haze.gov.sg.');
     }
   }
 
@@ -630,7 +691,7 @@ if (typeof document !== 'undefined') {
       });
     })(rbtns[r]);
   }
-  $('refresh').addEventListener('click', run);
+  $('refresh').addEventListener('click', function () { run(true); });
   $('toggle-settings').addEventListener('click', toggleSettings);
   $('save').addEventListener('click', saveSettings);
   $('reset').addEventListener('click', resetSettings);
@@ -675,14 +736,15 @@ if (typeof document !== 'undefined') {
   });
 
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && Date.now() - lastRun > 60000) run();
+    if (!document.hidden && Date.now() - lastRun > 60000) run(true);
   });
   window.addEventListener('pageshow', function () {
-    if (Date.now() - lastRun > 60000) run();
+    if (Date.now() - lastRun > 60000) run(true);
   });
-  setInterval(function () { if (!document.hidden) run(); }, 300000);
+  setInterval(function () { if (!document.hidden) run(true); }, 300000);
+  window.addEventListener('online', function () { run(true); });
 
-  run();
+  run(true);
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     window.addEventListener('load', function () {
