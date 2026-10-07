@@ -55,9 +55,10 @@
   .reason { font-size: 20px; font-weight: 600; margin: 0 0 24px; }
   .facts {
     background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-    padding: 4px 16px; margin: 0 0 20px;
+    padding: 2px 12px; margin: 0 0 12px;
+    font-size: 13px; line-height: 1.3;
   }
-  .row { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
   .row:last-child { border-bottom: 0; }
   .row span:first-child { color: var(--muted); }
   .row span:last-child { font-weight: 600; text-align: right; }
@@ -91,8 +92,10 @@
     color: var(--ink); background: var(--bg); border: 2px solid var(--line); border-radius: 8px;
   }
   .settings .actions { margin-top: 14px; }
+  .limits-row { margin-top: 0; }
+  .limits-row .ghost { padding: 6px 12px; font-size: 13px; border-width: 1px; border-radius: 8px; }
   .smsg { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
-  .note { color: var(--muted); font-size: 13px; margin-top: 16px; }
+  .note { color: var(--muted); font-size: 13px; margin: 10px 0 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
   .note a { color: inherit; }
 </style>
 </head>
@@ -111,8 +114,7 @@
 
 <div class="facts" id="facts" hidden>
   <div id="f-rows"></div>
-  <div class="row"><span>Reading at</span><span id="f-time"></span></div>
-  <div class="row"><span>Checked</span><span id="f-checked"></span></div>
+  <div class="row"><span>Reading</span><span id="f-time"></span></div>
 </div>
 
 <div class="range" id="range" role="group" aria-label="Chart range" hidden>
@@ -122,8 +124,10 @@
 <div class="charts" id="charts"></div>
 </main>
 
-<button class="primary" id="refresh">Check again</button>
-<div class="actions"><button class="ghost" id="toggle-settings" aria-expanded="false">Limits</button></div>
+<div class="actions limits-row">
+  <button class="ghost" id="toggle-settings" aria-expanded="false">Limits</button>
+  <button class="ghost" id="toggle-info" aria-expanded="false">Info</button>
+</div>
 
 <div class="settings" id="settings" hidden>
   <label><span>Falling trend<small>Start limit</small></span><input id="s-falling" type="number" inputmode="numeric" min="0" max="300"></label>
@@ -139,7 +143,7 @@
   <p class="smsg" id="s-msg"></p>
 </div>
 
-<p class="note">Swipe left or right to change tab. Data: NEA 1-hr PM2.5 via data.gov.sg. Each reading is stamped on the hour and appears 15 to 45 minutes later. If this page shows an error, open <a href="https://www.haze.gov.sg/">haze.gov.sg</a> and read the 1-hr PM2.5 tab.</p>
+<p class="note" id="info" hidden>Swipe left or right to change tab. Data: NEA 1-hr PM2.5 via data.gov.sg. Each reading is stamped on the hour and appears 15 to 45 minutes later. If this page shows an error, open <a href="https://www.haze.gov.sg/">haze.gov.sg</a> and read the 1-hr PM2.5 tab.</p>
 
 <script>
 /* ---- Your rule. Change these in the Limits panel, or edit the defaults here. ---- */
@@ -500,8 +504,8 @@ if (typeof document !== 'undefined') {
       row.appendChild(a); row.appendChild(b);
       rows.appendChild(row);
     });
-    $('f-time').textContent = sgTime(d.timestamp) + (d.pub ? ', out at ' + sgTime(d.pub) : '');
-    $('f-checked').textContent = sgTime(opts.fetchedAt || Date.now()) + (opts.offline ? ' (last good check)' : '');
+    $('f-time').textContent = sgTime(d.timestamp) + (d.pub ? ' (out ' + sgTime(d.pub) + ')' : '') +
+      ', checked ' + sgTime(opts.fetchedAt || Date.now()) + (opts.offline ? ' (last good)' : '');
     $('facts').hidden = false;
 
     lastD = d;
@@ -642,12 +646,17 @@ if (typeof document !== 'undefined') {
     if (raw === '' || isNaN(Number(raw))) return null;
     return Math.round(Number(raw));
   }
-  function toggleSettings() {
-    var box = $('settings');
-    box.hidden = !box.hidden;
-    $('toggle-settings').setAttribute('aria-expanded', String(!box.hidden));
-    if (!box.hidden) { fillSettings(); $('s-msg').textContent = ''; }
+  /* Limits and Info share one slot: opening one closes the other, so the page stays on one screen. */
+  function togglePanel(which) {
+    var panels = { settings: ['settings', 'toggle-settings'], info: ['info', 'toggle-info'] };
+    for (var k in panels) {
+      var box = $(panels[k][0]), btn = $(panels[k][1]);
+      box.hidden = k === which ? !box.hidden : true;
+      btn.setAttribute('aria-expanded', String(!box.hidden));
+    }
+    if (!$('settings').hidden) { fillSettings(); $('s-msg').textContent = ''; }
   }
+  function toggleSettings() { togglePanel('settings'); }
   function saveSettings() {
     var vals = {
       falling: readInt('s-falling'), flat: readInt('s-flat'), rising: readInt('s-rising'),
@@ -691,8 +700,8 @@ if (typeof document !== 'undefined') {
       });
     })(rbtns[r]);
   }
-  $('refresh').addEventListener('click', function () { run(true); });
   $('toggle-settings').addEventListener('click', toggleSettings);
+  $('toggle-info').addEventListener('click', function () { togglePanel('info'); });
   $('save').addEventListener('click', saveSettings);
   $('reset').addEventListener('click', resetSettings);
 
