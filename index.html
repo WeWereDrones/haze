@@ -399,8 +399,11 @@ if (typeof document !== 'undefined') {
     return e;
   }
 
-  function buildChart(p, lineAt) {
+  function buildChart(p, lineAt, isMid) {
     var series = p.series.slice(-chartRange);
+    // Mid-session colours each hour by the same rule as the verdict: reading plus any rise over the previous hour.
+    var proj = p.series.slice(-chartRange - 1).map(function (s, i, a) { return s.v + (i > 0 ? Math.max(s.v - a[i - 1].v, 0) : 0); });
+    if (proj.length > series.length) proj = proj.slice(1);
     var n = series.length;
     var peak = 0;
     for (var q = 1; q < n; q++) if (series[q].v > series[peak].v) peak = q;
@@ -427,7 +430,8 @@ if (typeof document !== 'undefined') {
     if (H < 60) H = 60;
     var padX = 6, top = 18, base = H - 26;
     var maxv = Math.max(NEA_HIGH, CONFIG.stopAbove);
-    series.forEach(function (s) { if (s.v > maxv) maxv = s.v; });
+    series.forEach(function (s, i) { if (s.v > maxv) maxv = s.v; });
+    if (isMid && proj[n - 1] > maxv) maxv = proj[n - 1];
     maxv = maxv * 1.05;
     var slot = (W - padX * 2) / n;
     var bw = Math.min(36, slot - (n > 24 ? 1.5 : (n > 8 ? 8 : 10)));
@@ -464,8 +468,14 @@ if (typeof document !== 'undefined') {
       var h = Math.max(2, s.v / maxv * (base - top));
       var x = padX + i * slot + (slot - bw) / 2, y = base - h, cx = x + bw / 2;
       var cls = s.v <= lineAt ? 'go' : (s.v <= NEA_HIGH ? 'wait' : 'stop');
+      if (isMid) cls = (s.v > CONFIG.stopAbove || proj[i] > CONFIG.stopAbove) ? 'stop' : (proj[i] > CONFIG.easeAbove ? 'wait' : 'go');
       svg.appendChild(svgEl('rect', { x: x, y: y, width: bw, height: h, rx: bw > 8 ? 3 : 1, style: 'fill:var(--' + cls + ')' }));
 
+      if (isMid && i === n - 1 && proj[i] > s.v) {   // dashed outline: where the next hour is heading
+        var ph = Math.max(2, proj[i] / maxv * (base - top));
+        svg.appendChild(svgEl('rect', { x: x + 1, y: base - ph, width: Math.max(bw - 2, 1), height: ph, rx: bw > 8 ? 3 : 1,
+          fill: 'none', 'stroke-width': 1.5, 'stroke-dasharray': '3 2', style: 'stroke:var(--ink)' }));
+      }
       var showVal = !dense || i === n - 1 || (i === peak && n - 1 - i > 4);
       if (showVal) {
         var val = svgEl('text', { x: clampX(cx), y: y - 4, 'text-anchor': 'middle', 'font-size': fs, 'font-weight': 600, style: 'fill:var(--ink)' });
@@ -501,7 +511,7 @@ if (typeof document !== 'undefined') {
     d.parts.forEach(function (p) {
       if (!p.series || p.series.length < 2) return;
       any = true;
-      if (mode === 'mid') charts.appendChild(buildChart(p, CONFIG.easeAbove));
+      if (mode === 'mid') charts.appendChild(buildChart(p, CONFIG.easeAbove, true));
       else charts.appendChild(buildChart(p, p.limit));
     });
     $('range').hidden = !any;
