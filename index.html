@@ -14,12 +14,12 @@
 <style>
   :root {
     --bg: #f3f5f4; --ink: #14181c; --muted: #5b666e; --line: #d5dbd8;
-    --go: #17753f; --wait: #b06a00; --stop: #b3261e; --card: #ffffff;
+    --go: #17753f; --wait: #b06a00; --stop: #b3261e; --nea-elev: #e65100; --card: #ffffff;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #14181c; --ink: #eef2f0; --muted: #97a3a9; --line: #2b343a;
-      --go: #4fd08a; --wait: #f0b24a; --stop: #ff8a80; --card: #1b2126;
+      --go: #4fd08a; --wait: #f0b24a; --stop: #ff8a80; --nea-elev: #ff6a00; --card: #1b2126;
     }
   }
   * { box-sizing: border-box; }
@@ -165,6 +165,7 @@ var DEFAULTS = {
   rideOffset: 0          // subtract this from every start limit on rides
 };
 var CONFIG = JSON.parse(JSON.stringify(DEFAULTS));
+var NEA_ELEV = 55;  // top of NEA Normal band; Elevated is 56 and above.
 var NEA_HIGH = 150; // NEA Band 3 (High) is 151 and above. Fixed, not one of your settings.
 
 /* ---- Pure logic (no network, no DOM) ---- */
@@ -435,11 +436,17 @@ if (typeof document !== 'undefined') {
       'aria-label': 'Last ' + n + ' hourly readings. Latest ' + series[n - 1].v + ', peak ' + series[peak].v + '.' +
         (dense ? '' : ' Values: ' + series.map(function (s) { return s.v; }).join(', ')) });
 
-    var ny = base - NEA_HIGH / maxv * (base - top);
-    svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ny, y2: ny, 'stroke-width': 1.5, style: 'stroke:var(--stop)' }));
-    var nl = svgEl('text', { x: padX, y: ny - 4, 'text-anchor': 'start', 'font-size': 10, 'font-weight': 600, style: 'fill:var(--stop)' });
-    nl.textContent = 'NEA High ' + NEA_HIGH;
-    svg.appendChild(nl);
+    var neaTags = [];
+    function neaLine(val, colour) {
+      var y = base - val / maxv * (base - top);
+      svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: y, y2: y, 'stroke-width': 1.5, style: 'stroke:var(' + colour + ')' }));
+      var t = svgEl('text', { x: padX, y: y - 4, 'text-anchor': 'start', 'font-size': 10, 'font-weight': 700,
+        style: 'fill:var(' + colour + '); stroke:var(--card); stroke-width:3px; paint-order:stroke' });
+      t.textContent = 'NEA';
+      neaTags.push(t);
+    }
+    neaLine(NEA_HIGH, '--stop');
+    neaLine(NEA_ELEV, '--nea-elev');
     var ly = base - lineAt / maxv * (base - top);
     svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ly, y2: ly, 'stroke-dasharray': '4 3', 'stroke-width': 1.5, style: 'stroke:var(--muted)' }));
 
@@ -475,6 +482,7 @@ if (typeof document !== 'undefined') {
         svg.appendChild(lab);
       }
     });
+    neaTags.forEach(function (t) { svg.appendChild(t); });   // on top, so bars never hide them
     bodyEl.textContent = '';
     bodyEl.appendChild(svg);
     };
