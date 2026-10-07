@@ -26,10 +26,11 @@
   html, body { margin: 0; background: var(--bg); color: var(--ink); }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    min-height: 100vh; padding: 20px 20px 36px; max-width: 520px; margin: 0 auto; line-height: 1.4;
+    min-height: 100vh; min-height: 100dvh; padding: 14px 20px calc(12px + env(safe-area-inset-bottom)); max-width: 520px; margin: 0 auto; line-height: 1.4;
+    display: flex; flex-direction: column;
   }
   body { touch-action: pan-y pinch-zoom; }
-  main { display: block; }
+  #page { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
   @keyframes slide-in-r { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
   @keyframes slide-in-l { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
   #page.in-r { animation: slide-in-r 0.22s ease-out; }
@@ -44,10 +45,10 @@
   }
   .modes button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   .verdict {
-    font-size: clamp(72px, 26vw, 128px); font-weight: 900; letter-spacing: -0.03em;
+    font-size: clamp(58px, 21vw, 102px); font-weight: 900; letter-spacing: -0.03em;
     line-height: 0.95; margin: 0 0 8px;
   }
-  .verdict.long { font-size: clamp(44px, 16vw, 84px); }
+  .verdict.long { font-size: clamp(36px, 13vw, 68px); }
   .verdict.go { color: var(--go); }
   .verdict.wait { color: var(--wait); }
   .verdict.stop { color: var(--stop); }
@@ -66,18 +67,21 @@
   .row .c-wait { color: var(--wait); }
   .row .c-stop { color: var(--stop); }
   .warn { color: var(--stop); font-weight: 600; margin: 0 0 16px; }
-  .charts { margin: 0 0 20px; }
-  .chart { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 6px; margin-bottom: 10px; }
+  .charts { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; margin: 0; }
+  .chart { flex: 1 1 0; min-height: 130px; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 4px; }
+  .chart-body { flex: 1 1 0; min-height: 96px; position: relative; overflow: hidden; }
   .chart-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-bottom: 4px; }
   .chart-head span { flex: none; font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; }
-  .range { display: flex; gap: 8px; margin: 0 0 8px; }
+  .bottombar { display: flex; align-items: stretch; gap: 14px; margin-top: 10px; }
+  .range { flex: 1; display: flex; gap: 8px; margin: 0; }
+  .range[hidden] { display: flex; visibility: hidden; }
   .range button {
-    padding: 6px 14px; font-weight: 600; font-size: 14px; line-height: 1.2; white-space: nowrap; color: var(--ink);
+    flex: 1; padding: 6px 4px; font-weight: 600; font-size: 14px; line-height: 1.2; white-space: nowrap; color: var(--ink);
     background: transparent; border: 2px solid var(--line); border-radius: 10px;
   }
   .range button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
   .chart-key { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); margin: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chart svg { width: 100%; height: auto; display: block; }
+  .chart-body svg { position: absolute; left: 0; top: 0; display: block; }
   .primary { width: 100%; padding: 14px; font-weight: 700; background: var(--ink); color: var(--bg); border: 0; border-radius: 10px; }
   .ghost { padding: 10px 14px; font-weight: 600; color: var(--ink); background: transparent; border: 2px solid var(--line); border-radius: 10px; }
   .actions { display: flex; gap: 8px; margin-top: 10px; }
@@ -91,8 +95,8 @@
     color: var(--ink); background: var(--bg); border: 2px solid var(--line); border-radius: 8px;
   }
   .settings .actions { margin-top: 14px; }
-  .limits-row { margin-top: 0; }
-  .limits-row .ghost { padding: 6px 12px; font-size: 13px; border-width: 1px; border-radius: 8px; }
+  .limits-row { flex: 1; margin-top: 0; }
+  .limits-row .ghost { padding: 6px 8px; font-size: 14px; line-height: 1.2; border-width: 2px; border-radius: 10px; }
   .smsg { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
   .note { color: var(--muted); font-size: 13px; margin: 10px 0 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
   .note a { color: inherit; }
@@ -116,16 +120,18 @@
   <div class="row"><span>Reading</span><span id="f-time"></span></div>
 </div>
 
-<div class="range" id="range" role="group" aria-label="Chart range" hidden>
-  <button data-range="12" aria-pressed="true">Last 12h</button>
-  <button data-range="48" aria-pressed="false">Last 48h</button>
-</div>
 <div class="charts" id="charts"></div>
 </main>
 
-<div class="actions limits-row">
-  <button class="ghost" id="toggle-settings" aria-expanded="false">Limits</button>
-  <button class="ghost" id="toggle-info" aria-expanded="false">Info</button>
+<div class="bottombar">
+  <div class="range" id="range" role="group" aria-label="Chart range" hidden>
+    <button data-range="12" aria-pressed="true">12h</button>
+    <button data-range="48" aria-pressed="false">48h</button>
+  </div>
+  <div class="actions limits-row">
+    <button class="ghost" id="toggle-settings" aria-expanded="false">Limits</button>
+    <button class="ghost" id="toggle-info" aria-expanded="false">Info</button>
+  </div>
 </div>
 
 <div class="settings" id="settings" hidden>
@@ -410,15 +416,21 @@ if (typeof document !== 'undefined') {
       '. Peak ' + series[peak].v + '.';
     head.appendChild(key);
     wrap.appendChild(head);
+    var bodyEl = document.createElement('div');
+    bodyEl.className = 'chart-body';
+    wrap.appendChild(bodyEl);
 
-    var W = 320, H = 118, padX = 6, top = 18, base = 92;
+    wrap._draw = function () {
+    var W = bodyEl.clientWidth || 320, H = bodyEl.clientHeight || 118;
+    if (H < 96) H = 96;
+    var padX = 6, top = 18, base = H - 26;
     var maxv = Math.max(NEA_HIGH, CONFIG.stopAbove);
     series.forEach(function (s) { if (s.v > maxv) maxv = s.v; });
     maxv = maxv * 1.05;
     var slot = (W - padX * 2) / n;
     var bw = Math.min(36, slot - (n > 24 ? 1.5 : (n > 8 ? 8 : 10)));
     var fs = n > 8 ? 10 : 11;
-    var svg = svgEl('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img',
+    var svg = svgEl('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img',
       'aria-label': 'Last ' + n + ' hourly readings. Latest ' + series[n - 1].v + ', peak ' + series[peak].v + '.' +
         (dense ? '' : ' Values: ' + series.map(function (s) { return s.v; }).join(', ')) });
 
@@ -457,13 +469,20 @@ if (typeof document !== 'undefined') {
       else if (sgHourNum(s.t) === 0) label = sgDay(s.t);
       else if (sgHourNum(s.t) % 6 === 0) label = sgHour(s.t);
       if (label) {
-        var lab = svgEl('text', { x: clampX(cx), y: 108, 'text-anchor': 'middle', 'font-size': fs, style: 'fill:var(--muted)' });
+        var lab = svgEl('text', { x: clampX(cx), y: H - 8, 'text-anchor': 'middle', 'font-size': fs, style: 'fill:var(--muted)' });
         lab.textContent = label;
         svg.appendChild(lab);
       }
     });
-    wrap.appendChild(svg);
+    bodyEl.textContent = '';
+    bodyEl.appendChild(svg);
+    };
     return wrap;
+  }
+
+  function drawCharts() {
+    var cs = $('charts').querySelectorAll('.chart');
+    for (var i = 0; i < cs.length; i++) if (cs[i]._draw) cs[i]._draw();
   }
 
   function renderCharts(d) {
@@ -477,6 +496,7 @@ if (typeof document !== 'undefined') {
       else charts.appendChild(buildChart(p, p.limit));
     });
     $('range').hidden = !any;
+    drawCharts();   // the charts are in the page now, so they can be measured
   }
 
   function render(d, opts) {
@@ -746,6 +766,16 @@ if (typeof document !== 'undefined') {
     if (e.key === 'ArrowRight') swipeTo(1);
     else if (e.key === 'ArrowLeft') swipeTo(-1);
   });
+
+  var redrawQueued = false;
+  function queueRedraw() {
+    if (redrawQueued) return;
+    redrawQueued = true;
+    (window.requestAnimationFrame || setTimeout)(function () { redrawQueued = false; drawCharts(); });
+  }
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(queueRedraw).observe($('charts'));
+  window.addEventListener('resize', queueRedraw);
+  window.addEventListener('orientationchange', queueRedraw);
 
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden && Date.now() - lastRun > 60000) run(true);
