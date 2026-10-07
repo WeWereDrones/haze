@@ -431,7 +431,6 @@ if (typeof document !== 'undefined') {
     var padX = 6, top = 18, base = H - 26;
     var maxv = Math.max(NEA_HIGH, CONFIG.stopAbove);
     series.forEach(function (s, i) { if (s.v > maxv) maxv = s.v; });
-    if (isMid && proj[n - 1] > maxv) maxv = proj[n - 1];
     maxv = maxv * 1.05;
     var slot = (W - padX * 2) / n;
     var bw = Math.min(36, slot - (n > 24 ? 1.5 : (n > 8 ? 8 : 10)));
@@ -471,17 +470,11 @@ if (typeof document !== 'undefined') {
       if (isMid) cls = (s.v > CONFIG.stopAbove || proj[i] > CONFIG.stopAbove) ? 'stop' : (proj[i] > CONFIG.easeAbove ? 'wait' : 'go');
       svg.appendChild(svgEl('rect', { x: x, y: y, width: bw, height: h, rx: bw > 8 ? 3 : 1, style: 'fill:var(--' + cls + ')' }));
 
-      var ghost = isMid && i === n - 1 && proj[i] > s.v;
       var labelY = y - 4;
-      if (ghost) {   // discreet marker: a short dashed cap at the projected next-hour level
-        var py = base - Math.max(2, proj[i] / maxv * (base - top));
-        svg.appendChild(svgEl('line', { x1: x, x2: x + bw, y1: py, y2: py, 'stroke-width': 2, 'stroke-dasharray': '3 2', style: 'stroke:var(--ink)' }));
-        labelY = py - 5;
-      }
       var showVal = !dense || i === n - 1 || (i === peak && n - 1 - i > 4);
       if (showVal) {
         var val = svgEl('text', { x: clampX(cx), y: labelY, 'text-anchor': 'middle', 'font-size': fs, 'font-weight': 600, style: 'fill:var(--ink)' });
-        val.textContent = ghost ? s.v + '\u2192' + proj[i] : s.v;
+        val.textContent = s.v;
         svg.appendChild(val);
       }
       var label = '';
