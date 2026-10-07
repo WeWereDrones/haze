@@ -157,7 +157,7 @@
 var DEFAULTS = {
   limits: { falling: 90, flat: 80, rising: 75 }, // start limits in ug/m3
   stopAbove: 150,        // Band 3 (High) starts at 151. Also the "head home" line.
-  easeAbove: 110,        // mid-session: ease off if next-hour estimate passes this
+  easeAbove: 100,        // mid-session: ease off if next-hour estimate passes this
   trendWindowHours: 2,   // compare latest reading with this many hours earlier
   trendDelta: 5,         // change of this many ug/m3 or more counts as rising/falling
   staleMinutes: 120,     // warn if the latest reading is older than this
