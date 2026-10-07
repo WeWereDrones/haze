@@ -37,9 +37,9 @@
   @media (prefers-reduced-motion: reduce) { #page.in-r, #page.in-l { animation: none; } }
   button { font: inherit; }
   button:focus-visible, input:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
-  .modes { display: flex; gap: 8px; margin-bottom: 28px; }
+  .modes { display: flex; gap: 8px; margin-bottom: 14px; }
   .modes button {
-    flex: 1; padding: 12px 4px; font-weight: 600; font-size: 15px; color: var(--ink);
+    flex: 1; padding: 6px 4px; font-weight: 600; font-size: 14px; line-height: 1.2; white-space: nowrap; color: var(--ink);
     background: transparent; border: 2px solid var(--line); border-radius: 10px;
   }
   .modes button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
@@ -68,16 +68,15 @@
   .warn { color: var(--stop); font-weight: 600; margin: 0 0 16px; }
   .charts { margin: 0 0 20px; }
   .chart { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 6px; margin-bottom: 10px; }
-  .chart-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; margin-bottom: 4px; }
-  .chart-head span:first-child { font-weight: 600; }
-  .chart-head span:last-child { color: var(--muted); }
+  .chart-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-bottom: 4px; }
+  .chart-head span { flex: none; font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; }
   .range { display: flex; gap: 6px; margin: 0 0 10px; }
   .range button {
     padding: 8px 14px; font-weight: 600; font-size: 14px; color: var(--ink);
     background: transparent; border: 2px solid var(--line); border-radius: 8px;
   }
   .range button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-  .chart-key { font-size: 12px; color: var(--muted); margin: 0 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chart-key { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); margin: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .chart svg { width: 100%; height: auto; display: block; }
   .primary { width: 100%; padding: 14px; font-weight: 700; background: var(--ink); color: var(--bg); border: 0; border-radius: 10px; }
   .ghost { padding: 10px 14px; font-weight: 600; color: var(--ink); background: transparent; border: 2px solid var(--line); border-radius: 10px; }
@@ -210,9 +209,9 @@ function decide(items, region, nowMs, cfg) {
   if (latest.v > cfg.stopAbove) {
     verdict = 'stop'; reason = 'High band. Do not go out.';
   } else if (latest.v <= limit) {
-    verdict = 'go'; reason = 'Under your limit of ' + limit + '.';
+    verdict = 'go'; reason = 'Under limit of ' + limit;
   } else {
-    verdict = 'wait'; reason = 'Over your limit of ' + limit + '. Re-check in an hour.';
+    verdict = 'wait'; reason = 'Over limit of ' + limit + '. Recheck in 1H';
   }
   return {
     verdict: verdict, reason: reason, value: latest.v, trend: trend, delta: delta,
@@ -252,7 +251,7 @@ function decideMany(items, regions, nowMs, cfg, limitOffset) {
     parts.push(d);
   }
   return summarise(parts, regions, function (w, name, many) {
-    if (w.verdict === 'go') return many ? 'All regions are under their limits.' : w.reason;
+    if (w.verdict === 'go') return many ? 'All regions under limits' : w.reason;
     return (many ? name + ': ' : '') + w.reason;
   });
 }
@@ -282,9 +281,9 @@ function decideMid(items, regions, nowMs, cfg) {
   return summarise(parts, regions, function (w, name, many) {
     var p = many ? name + ': ' : '';
     if (w.verdict === 'stop' && w.why === 'over') return p + 'Over ' + cfg.stopAbove + '. Head home.';
-    if (w.verdict === 'stop') return p + 'At this rate it passes ' + cfg.stopAbove + ' next hour. Head home.';
-    if (w.verdict === 'wait') return p + 'Heading past ' + cfg.easeAbove + '. Ease off and re-check in 30 minutes.';
-    return 'Nothing close to your limits. Carry on.';
+    if (w.verdict === 'stop') return p + 'Trending to ' + cfg.stopAbove + ' in 1H. Head home.';
+    if (w.verdict === 'wait') return p + 'Trending to ' + w.projected + '. Recheck 1H';
+    return 'Far from Limits - Carry On';
   });
 }
 
@@ -325,7 +324,6 @@ if (typeof document !== 'undefined') {
   var fmtDay = new Intl.DateTimeFormat('en-SG', { timeZone: 'Asia/Singapore', weekday: 'short' });
   function sgHourNum(ms) { return parseInt(fmtHour24.format(new Date(ms)), 10) % 24; }
   function sgDay(ms) { return fmtDay.format(new Date(ms)); }
-  function sgHourLong(ms) { return fmtHour.format(new Date(ms)).toLowerCase(); }
   function sgTime(ms) { return fmtTime.format(new Date(ms)); }
   function sgHour(ms) {
     var p = fmtHour.format(new Date(ms)).toLowerCase().replace(/\s/g, '');
@@ -376,6 +374,11 @@ if (typeof document !== 'undefined') {
     });
   }
 
+  function chartTitle(region) {
+    if (region === 'east') return 'ECP';
+    return 'Downtown';
+  }
+
   function labelFor(region) {
     if (region === 'east') return 'East (ECP to Changi)';
     return mode === 'swim' ? 'South (walk and swim)' : 'South (Downtown)';
@@ -399,14 +402,14 @@ if (typeof document !== 'undefined') {
     var head = document.createElement('div');
     head.className = 'chart-head';
     var h1 = document.createElement('span');
-    h1.textContent = labelFor(p.region);
+    h1.textContent = chartTitle(p.region);
     head.appendChild(h1);
-    wrap.appendChild(head);
     var key = document.createElement('p');
     key.className = 'chart-key';
     key.textContent = 'Dash=' + lineAt + '. Red=NEA High >' + NEA_HIGH +
-      '. Peak ' + series[peak].v + ', ' + sgDay(series[peak].t) + ' ' + sgHourLong(series[peak].t) + '.';
-    wrap.appendChild(key);
+      '. Peak ' + series[peak].v + '.';
+    head.appendChild(key);
+    wrap.appendChild(head);
 
     var W = 320, H = 118, padX = 6, top = 18, base = 92;
     var maxv = Math.max(NEA_HIGH, CONFIG.stopAbove);
