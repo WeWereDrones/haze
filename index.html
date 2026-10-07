@@ -140,6 +140,7 @@
   <label><span>Rising trend<small>Start limit</small></span><input id="s-rising" type="number" inputmode="numeric" min="0" max="300"></label>
   <label><span>Ride stricter by<small>Taken off all three start limits</small></span><input id="s-rideOffset" type="number" inputmode="numeric" min="0" max="100"></label>
   <label><span>Ease off above<small>Mid-session, next-hour estimate</small></span><input id="s-easeAbove" type="number" inputmode="numeric" min="0" max="300"></label>
+  <label><span>Head home above<small>Mid-session, next-hour estimate</small></span><input id="s-headHome" type="number" inputmode="numeric" min="0" max="300"></label>
   <label><span>Stop above<small>Also head home above this</small></span><input id="s-stopAbove" type="number" inputmode="numeric" min="0" max="300"></label>
   <div class="actions">
     <button class="primary" id="save">Save limits</button>
@@ -158,6 +159,7 @@ var DEFAULTS = {
   limits: { falling: 90, flat: 80, rising: 75 }, // start limits in ug/m3
   stopAbove: 150,        // Band 3 (High) starts at 151. Also the "head home" line.
   easeAbove: 100,        // mid-session: ease off if next-hour estimate passes this
+  headHome: 125,         // mid-session: head home if next-hour estimate passes this
   trendWindowHours: 2,   // compare latest reading with this many hours earlier
   trendDelta: 5,         // change of this many ug/m3 or more counts as rising/falling
   staleMinutes: 120,     // warn if the latest reading is older than this
@@ -279,6 +281,7 @@ function decideMid(items, regions, nowMs, cfg) {
     var verdict = 'go', why = 'go';
     if (latest.v > cfg.stopAbove) { verdict = 'stop'; why = 'over'; }
     else if (proj > cfg.stopAbove) { verdict = 'stop'; why = 'pace'; }
+    else if (proj > cfg.headHome) { verdict = 'stop'; why = 'rise'; }
     else if (proj > cfg.easeAbove) { verdict = 'wait'; }
     var ageMin = Math.round((nowMs - latest.t) / 60000);
     parts.push({
@@ -290,8 +293,9 @@ function decideMid(items, regions, nowMs, cfg) {
   return summarise(parts, regions, function (w, name, many) {
     var p = many ? name + ': ' : '';
     if (w.verdict === 'stop' && w.why === 'over') return p + 'Over ' + cfg.stopAbove + '. Head home.';
+    if (w.verdict === 'stop' && w.why === 'rise') return p + 'Trending ' + w.projected + '. Head home.';
     if (w.verdict === 'stop') return p + 'Trending to ' + cfg.stopAbove + ' in 1H. Head home.';
-    if (w.verdict === 'wait') return p + 'Trending to ' + w.projected + '. Recheck 1H';
+    if (w.verdict === 'wait') return p + 'Trending ' + w.projected + ". Don't extend.";
     return 'Far from Limits - Carry On';
   });
 }
@@ -304,12 +308,13 @@ function applySaved(cfg, saved) {
   if (!saved) return cfg;
   function num(x, lo, hi) { return typeof x === 'number' && isFinite(x) && x >= lo && x <= hi ? x : null; }
   var f = num(saved.falling, 0, 300), fl = num(saved.flat, 0, 300), r = num(saved.rising, 0, 300);
-  var ro = num(saved.rideOffset, 0, 100), ea = num(saved.easeAbove, 0, 300), sa = num(saved.stopAbove, 0, 300);
+  var ro = num(saved.rideOffset, 0, 100), ea = num(saved.easeAbove, 0, 300), hh = num(saved.headHome, 0, 300), sa = num(saved.stopAbove, 0, 300);
   if (f !== null) cfg.limits.falling = f;
   if (fl !== null) cfg.limits.flat = fl;
   if (r !== null) cfg.limits.rising = r;
   if (ro !== null) cfg.rideOffset = ro;
   if (ea !== null) cfg.easeAbove = ea;
+  if (hh !== null) cfg.headHome = hh;
   if (sa !== null) cfg.stopAbove = sa;
   return cfg;
 }
@@ -467,7 +472,7 @@ if (typeof document !== 'undefined') {
       var h = Math.max(2, s.v / maxv * (base - top));
       var x = padX + i * slot + (slot - bw) / 2, y = base - h, cx = x + bw / 2;
       var cls = s.v <= lineAt ? 'go' : (s.v <= NEA_HIGH ? 'wait' : 'stop');
-      if (isMid) cls = (s.v > CONFIG.stopAbove || proj[i] > CONFIG.stopAbove) ? 'stop' : (proj[i] > CONFIG.easeAbove ? 'wait' : 'go');
+      if (isMid) cls = (s.v > CONFIG.stopAbove || proj[i] > CONFIG.headHome) ? 'stop' : (proj[i] > CONFIG.easeAbove ? 'wait' : 'go');
       svg.appendChild(svgEl('rect', { x: x, y: y, width: bw, height: h, rx: bw > 8 ? 3 : 1, style: 'fill:var(--' + cls + ')' }));
 
       var labelY = y - 4;
@@ -676,6 +681,7 @@ if (typeof document !== 'undefined') {
     $('s-rising').value = CONFIG.limits.rising;
     $('s-rideOffset').value = CONFIG.rideOffset;
     $('s-easeAbove').value = CONFIG.easeAbove;
+    $('s-headHome').value = CONFIG.headHome;
     $('s-stopAbove').value = CONFIG.stopAbove;
   }
   function readInt(id) {
@@ -697,7 +703,7 @@ if (typeof document !== 'undefined') {
   function saveSettings() {
     var vals = {
       falling: readInt('s-falling'), flat: readInt('s-flat'), rising: readInt('s-rising'),
-      rideOffset: readInt('s-rideOffset'), easeAbove: readInt('s-easeAbove'), stopAbove: readInt('s-stopAbove')
+      rideOffset: readInt('s-rideOffset'), easeAbove: readInt('s-easeAbove'), headHome: readInt('s-headHome'), stopAbove: readInt('s-stopAbove')
     };
     for (var k in vals) {
       var hi = k === 'rideOffset' ? 100 : 300;
@@ -710,7 +716,7 @@ if (typeof document !== 'undefined') {
     lsSet('hazeCfg', JSON.stringify(vals));
     var msg = 'Saved.';
     if (vals.falling < vals.flat || vals.flat < vals.rising) msg += ' Note: limits are usually falling >= flat >= rising.';
-    if (vals.easeAbove >= vals.stopAbove) msg += ' Note: ease off should be below stop.';
+    if (vals.easeAbove >= vals.headHome || vals.headHome >= vals.stopAbove) msg += ' Note: ease off < head home < stop is the usual order.';
     $('s-msg').textContent = msg;
     run();
   }
