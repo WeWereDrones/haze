@@ -72,7 +72,7 @@
   .chart-body { flex: 1 1 0; min-height: 60px; position: relative; overflow: hidden; }
   .chart-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-bottom: 4px; }
   .chart-head span { flex: none; font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; }
-  .bottombar { display: flex; align-items: stretch; gap: 14px; margin-top: 10px; }
+  .bottombar { position: relative; display: flex; align-items: stretch; gap: 14px; margin-top: 10px; }
   .range { flex: 1; display: flex; gap: 8px; margin: 0; }
   .range[hidden] { display: flex; visibility: hidden; }
   .range button {
@@ -95,6 +95,8 @@
     color: var(--ink); background: var(--bg); border: 2px solid var(--line); border-radius: 8px;
   }
   .settings .actions { margin-top: 14px; }
+  .settings, .note#info { position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); margin: 0; z-index: 20; overflow-y: auto; max-height: calc(var(--app-h, 100dvh) - 150px); box-shadow: 0 8px 28px rgba(0,0,0,.45); }
+  .settings[hidden], .note#info[hidden] { display: none; }
   .limits-row { flex: 1; margin-top: 0; }
   .limits-row .ghost { padding: 6px 8px; font-size: 14px; line-height: 1.2; border-width: 2px; border-radius: 10px; }
   .smsg { margin: 10px 0 0; font-size: 14px; color: var(--muted); }
@@ -132,8 +134,6 @@
     <button data-range="12" aria-pressed="true">12h</button>
     <button data-range="48" aria-pressed="false">48h</button>
   </div>
-</div>
-
 <div class="settings" id="settings" hidden>
   <label><span>Falling trend<small>Start limit</small></span><input id="s-falling" type="number" inputmode="numeric" min="0" max="300"></label>
   <label><span>Flat trend<small>Start limit</small></span><input id="s-flat" type="number" inputmode="numeric" min="0" max="300"></label>
@@ -147,8 +147,10 @@
   </div>
   <p class="smsg" id="s-msg"></p>
 </div>
-
 <p class="note" id="info" hidden>Swipe left or right to change tab. Data: NEA 1-hr PM2.5 via data.gov.sg. Each reading is stamped on the hour and appears 15 to 45 minutes later. If this page shows an error, open <a href="https://www.haze.gov.sg/">haze.gov.sg</a> and read the 1-hr PM2.5 tab.</p>
+</div>
+
+
 
 <script>
 /* ---- Your rule. Change these in the Limits panel, or edit the defaults here. ---- */
