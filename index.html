@@ -388,8 +388,8 @@ if (typeof document !== 'undefined') {
   }
 
   function labelFor(region) {
-    if (region === 'east') return 'East (ECP to Changi)';
-    return mode === 'swim' ? 'South (walk and swim)' : 'South (Downtown)';
+    if (region === 'east') return 'ECP';
+    return 'Downtown';
   }
 
   function svgEl(name, attrs) {
@@ -414,8 +414,7 @@ if (typeof document !== 'undefined') {
     head.appendChild(h1);
     var key = document.createElement('p');
     key.className = 'chart-key';
-    key.textContent = 'Dash=' + lineAt + '. Red=NEA High >' + NEA_HIGH +
-      '. Peak ' + series[peak].v + '.';
+    key.textContent = 'Limit=' + lineAt + '. Peak ' + series[peak].v + '.';
     head.appendChild(key);
     wrap.appendChild(head);
     var bodyEl = document.createElement('div');
@@ -439,7 +438,7 @@ if (typeof document !== 'undefined') {
     var ny = base - NEA_HIGH / maxv * (base - top);
     svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ny, y2: ny, 'stroke-width': 1.5, style: 'stroke:var(--stop)' }));
     var nl = svgEl('text', { x: padX, y: ny - 4, 'text-anchor': 'start', 'font-size': 10, 'font-weight': 600, style: 'fill:var(--stop)' });
-    nl.textContent = 'NEA High';
+    nl.textContent = 'NEA High ' + NEA_HIGH;
     svg.appendChild(nl);
     var ly = base - lineAt / maxv * (base - top);
     svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ly, y2: ly, 'stroke-dasharray': '4 3', 'stroke-width': 1.5, style: 'stroke:var(--muted)' }));
@@ -529,7 +528,7 @@ if (typeof document !== 'undefined') {
       row.appendChild(a); row.appendChild(b);
       rows.appendChild(row);
     });
-    $('f-time').textContent = sgTime(d.timestamp) + (d.pub ? ' (out ' + sgTime(d.pub) + ')' : '') +
+    $('f-time').textContent = sgTime(d.timestamp) +
       ', checked ' + sgTime(opts.fetchedAt || Date.now()) + (opts.offline ? ' (last good)' : '');
     $('facts').hidden = false;
 
