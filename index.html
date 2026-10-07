@@ -26,7 +26,7 @@
   html, body { margin: 0; background: var(--bg); color: var(--ink); }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    min-height: 100vh; min-height: 100dvh; padding: 14px 20px calc(12px + env(safe-area-inset-bottom)); max-width: 520px; margin: 0 auto; line-height: 1.4;
+    min-height: 100vh; min-height: 100dvh; min-height: var(--app-h, 100dvh); padding: 14px 20px calc(12px + env(safe-area-inset-bottom)); max-width: 520px; margin: 0 auto; line-height: 1.4;
     display: flex; flex-direction: column;
   }
   body { touch-action: pan-y pinch-zoom; }
@@ -68,8 +68,8 @@
   .row .c-stop { color: var(--stop); }
   .warn { color: var(--stop); font-weight: 600; margin: 0 0 16px; }
   .charts { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; margin: 0; }
-  .chart { flex: 1 1 0; min-height: 130px; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 4px; }
-  .chart-body { flex: 1 1 0; min-height: 96px; position: relative; overflow: hidden; }
+  .chart { flex: 1 1 0; min-height: 96px; display: flex; flex-direction: column; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px 4px; }
+  .chart-body { flex: 1 1 0; min-height: 60px; position: relative; overflow: hidden; }
   .chart-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-bottom: 4px; }
   .chart-head span { flex: none; font-size: 14px; font-weight: 600; color: var(--ink); white-space: nowrap; }
   .bottombar { display: flex; align-items: stretch; gap: 14px; margin-top: 10px; }
@@ -124,13 +124,13 @@
 </main>
 
 <div class="bottombar">
+  <div class="actions limits-row">
+    <button class="ghost" id="toggle-info" aria-expanded="false">Info</button>
+    <button class="ghost" id="toggle-settings" aria-expanded="false">Limits</button>
+  </div>
   <div class="range" id="range" role="group" aria-label="Chart range" hidden>
     <button data-range="12" aria-pressed="true">12h</button>
     <button data-range="48" aria-pressed="false">48h</button>
-  </div>
-  <div class="actions limits-row">
-    <button class="ghost" id="toggle-settings" aria-expanded="false">Limits</button>
-    <button class="ghost" id="toggle-info" aria-expanded="false">Info</button>
   </div>
 </div>
 
@@ -422,7 +422,7 @@ if (typeof document !== 'undefined') {
 
     wrap._draw = function () {
     var W = bodyEl.clientWidth || 320, H = bodyEl.clientHeight || 118;
-    if (H < 96) H = 96;
+    if (H < 60) H = 60;
     var padX = 6, top = 18, base = H - 26;
     var maxv = Math.max(NEA_HIGH, CONFIG.stopAbove);
     series.forEach(function (s) { if (s.v > maxv) maxv = s.v; });
@@ -766,6 +766,16 @@ if (typeof document !== 'undefined') {
     if (e.key === 'ArrowRight') swipeTo(1);
     else if (e.key === 'ArrowLeft') swipeTo(-1);
   });
+
+  function setAppHeight() {
+    var vv = window.visualViewport;
+    var hgt = Math.round(vv && vv.height ? vv.height : window.innerHeight);
+    if (hgt > 200) document.documentElement.style.setProperty('--app-h', hgt + 'px');
+  }
+  setAppHeight();
+  window.addEventListener('resize', setAppHeight);
+  window.addEventListener('orientationchange', setAppHeight);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', setAppHeight);
 
   var redrawQueued = false;
   function queueRedraw() {
