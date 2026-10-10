@@ -14,12 +14,12 @@
 <style>
   :root {
     --bg: #f3f5f4; --ink: #14181c; --muted: #5b666e; --line: #d5dbd8;
-    --go: #17753f; --wait: #b06a00; --stop: #b3261e; --nea-elev: #e65100; --card: #ffffff;
+    --go: #17753f; --wait: #b06a00; --stop: #b3261e; --nea-hard: #8c0b05; --card: #ffffff;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #14181c; --ink: #eef2f0; --muted: #97a3a9; --line: #2b343a;
-      --go: #4fd08a; --wait: #f0b24a; --stop: #ff8a80; --nea-elev: #ff6a00; --card: #1b2126;
+      --go: #4fd08a; --wait: #f0b24a; --stop: #ff8a80; --nea-hard: #ff2d20; --card: #1b2126;
     }
   }
   * { box-sizing: border-box; }
@@ -168,8 +168,8 @@ var DEFAULTS = {
   rideOffset: 0          // subtract this from every start limit on rides
 };
 var CONFIG = JSON.parse(JSON.stringify(DEFAULTS));
-var NEA_ELEV = 55;  // top of NEA Normal band; Elevated is 56 and above.
-var NEA_HIGH = 150; // NEA Band 3 (High) is 151 and above. Fixed, not one of your settings.
+var NEA_ELEV = 56;  // NEA 1-hr Elevated band starts here. Fixed reference line, not one of your settings.
+var NEA_HIGH = 151; // NEA 1-hr High band starts here. Fixed reference line, not one of your settings.
 
 /* ---- Pure logic (no network, no DOM) ---- */
 function getPoints(items, region) {
@@ -474,16 +474,16 @@ if (typeof document !== 'undefined') {
         (dense ? '' : ' Values: ' + series.map(function (s) { return s.v; }).join(', ')) });
 
     var neaTags = [];
-    function neaLine(val, colour) {
+    function neaLine(val, colour, width) {
       var y = base - val / maxv * (base - top);
-      svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: y, y2: y, 'stroke-width': 1.5, style: 'stroke:var(' + colour + ')' }));
+      svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: y, y2: y, 'stroke-width': width, style: 'stroke:var(' + colour + ')' }));
       var t = svgEl('text', { x: padX, y: y - 4, 'text-anchor': 'start', 'font-size': 10, 'font-weight': 700,
         style: 'fill:var(' + colour + '); stroke:var(--card); stroke-width:3px; paint-order:stroke' });
       t.textContent = 'NEA';
       neaTags.push(t);
     }
-    neaLine(NEA_HIGH, '--stop');
-    neaLine(NEA_ELEV, '--nea-elev');
+    neaLine(NEA_ELEV, '--stop', 1.5);        // lighter, thinner red
+    neaLine(NEA_HIGH, '--nea-hard', 3);      // deeper, thicker red
     var ly = base - lineAt / maxv * (base - top);
     svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ly, y2: ly, 'stroke-dasharray': '4 3', 'stroke-width': 1.5, style: 'stroke:var(--muted)' }));
 
