@@ -133,6 +133,7 @@
   <div class="range" id="range" role="group" aria-label="Chart range" hidden>
     <button data-range="12" aria-pressed="true">12h</button>
     <button data-range="48" aria-pressed="false">48h</button>
+    <button data-range="168" aria-pressed="false">7d</button>
   </div>
 <div class="settings" id="settings" hidden>
   <label><span>Falling trend<small>Start limit</small></span><input id="s-falling" type="number" inputmode="numeric" min="0" max="300"></label>
@@ -156,14 +157,14 @@
 <script>
 /* ---- Your rule. Change these in the Limits panel, or edit the defaults here. ---- */
 var DEFAULTS = {
-  limits: { falling: 90, flat: 80, rising: 75 }, // start limits in ug/m3
-  stopAbove: 150,        // Band 3 (High) starts at 151. Also the "head home" line.
-  easeAbove: 100,        // mid-session: ease off if next-hour estimate passes this
-  headHome: 125,         // mid-session: head home if next-hour estimate passes this
+  limits: { falling: 50, flat: 40, rising: 35 }, // start limits in ug/m3
+  stopAbove: 90,         // never out above this. Also the "head home" line for a reading already over it.
+  easeAbove: 60,         // mid-session: ease off if next-hour estimate passes this
+  headHome: 80,         // mid-session: head home if next-hour estimate passes this
   trendWindowHours: 2,   // compare latest reading with this many hours earlier
   trendDelta: 5,         // change of this many ug/m3 or more counts as rising/falling
   staleMinutes: 120,     // warn if the latest reading is older than this
-  historyMax: 48,        // hourly readings kept per region (the chart shows 12 or 48)
+  historyMax: 168,       // hourly readings kept per region (the chart shows 12, 48 or 168)
   rideOffset: 0          // subtract this from every start limit on rides
 };
 var CONFIG = JSON.parse(JSON.stringify(DEFAULTS));
@@ -218,7 +219,7 @@ function decide(items, region, nowMs, cfg) {
 
   var verdict, reason;
   if (latest.v > cfg.stopAbove) {
-    verdict = 'stop'; reason = 'High band. Do not go out.';
+    verdict = 'stop'; reason = 'Over ' + cfg.stopAbove + '. Do not go out.';
   } else if (latest.v <= limit) {
     verdict = 'go'; reason = 'Under limit of ' + limit;
   } else {
@@ -361,6 +362,31 @@ if (typeof document !== 'undefined') {
     } finally { clearTimeout(timer); }
   }
 
+  /* Days 3 to 6 back are fetched only when 7d is tapped, one at a time, so the feed's 6 requests per 10 seconds is never hit.
+     Past days do not change, so they are kept for the session. */
+  var extraItems = [], extraState = 'none';   // 'none' | 'loading' | 'done' | 'fail'
+
+  async function loadExtras() {
+    if (extraState === 'loading' || extraState === 'done') return;
+    extraState = 'loading';
+    var got = [];
+    try {
+      for (var back = 3; back <= 6; back++) {
+        var url = API + '?date=' + fmtDate.format(new Date(Date.now() - back * 86400000));
+        var j;
+        try { j = await fetchJson(url); }
+        catch (e1) { await sleep(4000); j = await fetchJson(url); }   // one patient retry, e.g. after a 429
+        if (j && j.data && j.data.items) got = got.concat(j.data.items);
+        if (back < 6) await sleep(1800);
+      }
+      extraItems = got;
+      extraState = 'done';
+    } catch (e) {
+      extraItems = got;      // keep whatever arrived
+      extraState = 'fail';
+    }
+  }
+
   async function getItems() {
     var day = function (back) { return fmtDate.format(new Date(Date.now() - back * 86400000)); };
     var res = await Promise.all([
@@ -372,6 +398,7 @@ if (typeof document !== 'undefined') {
     for (var i = res.length - 1; i >= 0; i--) {
       if (res[i] && res[i].data && res[i].data.items) items = items.concat(res[i].data.items);
     }
+    if (extraItems.length) items = items.concat(extraItems);
     if (!items.length) {
       var jl = await fetchJson(API);
       items = (jl.data && jl.data.items) || [];
@@ -423,7 +450,9 @@ if (typeof document !== 'undefined') {
     head.appendChild(h1);
     var key = document.createElement('p');
     key.className = 'chart-key';
-    key.textContent = 'Limit=' + lineAt + '. Peak ' + series[peak].v + '.';
+    key.textContent = 'Limit=' + lineAt + '. Peak ' + series[peak].v + '.' +
+      (chartRange > 72 && extraState === 'loading' ? ' Loading older days...' : '') +
+      (chartRange > 72 && extraState === 'fail' ? ' Older days unavailable.' : '');
     head.appendChild(key);
     wrap.appendChild(head);
     var bodyEl = document.createElement('div');
@@ -438,7 +467,7 @@ if (typeof document !== 'undefined') {
     series.forEach(function (s, i) { if (s.v > maxv) maxv = s.v; });
     maxv = maxv * 1.05;
     var slot = (W - padX * 2) / n;
-    var bw = Math.min(36, slot - (n > 24 ? 1.5 : (n > 8 ? 8 : 10)));
+    var bw = Math.max(1, Math.min(36, slot - (n > 100 ? 0.6 : (n > 24 ? 1.5 : (n > 8 ? 8 : 10)))));
     var fs = n > 8 ? 10 : 11;
     var svg = svgEl('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, role: 'img',
       'aria-label': 'Last ' + n + ' hourly readings. Latest ' + series[n - 1].v + ', peak ' + series[peak].v + '.' +
@@ -471,7 +500,7 @@ if (typeof document !== 'undefined') {
     series.forEach(function (s, i) {
       var h = Math.max(2, s.v / maxv * (base - top));
       var x = padX + i * slot + (slot - bw) / 2, y = base - h, cx = x + bw / 2;
-      var cls = s.v <= lineAt ? 'go' : (s.v <= NEA_HIGH ? 'wait' : 'stop');
+      var cls = s.v <= lineAt ? 'go' : (s.v <= CONFIG.stopAbove ? 'wait' : 'stop');
       if (isMid) cls = (s.v > CONFIG.stopAbove || proj[i] > CONFIG.headHome) ? 'stop' : (proj[i] > CONFIG.easeAbove ? 'wait' : 'go');
       svg.appendChild(svgEl('rect', { x: x, y: y, width: bw, height: h, rx: bw > 8 ? 3 : 1, style: 'fill:var(--' + cls + ')' }));
 
@@ -485,7 +514,7 @@ if (typeof document !== 'undefined') {
       var label = '';
       if (!dense) label = sgHour(s.t);
       else if (sgHourNum(s.t) === 0) label = sgDay(s.t);
-      else if (sgHourNum(s.t) % 6 === 0) label = sgHour(s.t);
+      else if (n <= 72 && sgHourNum(s.t) % 6 === 0) label = sgHour(s.t);
       if (label) {
         var lab = svgEl('text', { x: clampX(cx), y: H - 8, 'text-anchor': 'middle', 'font-size': fs, style: 'fill:var(--muted)' });
         lab.textContent = label;
@@ -740,6 +769,15 @@ if (typeof document !== 'undefined') {
         chartRange = Number(b.getAttribute('data-range'));
         for (var k = 0; k < rbtns.length; k++) rbtns[k].setAttribute('aria-pressed', rbtns[k] === b);
         if (lastD) renderCharts(lastD);
+        if (chartRange > 72 && extraState !== 'done' && extraState !== 'loading') {
+          loadExtras().then(function () {
+            if (mem && extraItems.length) {
+              mem.items = mem.items.concat(extraItems);
+              try { lastD = compute(mem.items); if (lastD.verdict !== 'none') renderCharts(lastD); } catch (e) {}
+            }
+          });
+          renderCharts(lastD);   // shows "Loading older days..."
+        }
       });
     })(rbtns[r]);
   }
