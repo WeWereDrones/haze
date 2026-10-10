@@ -14,12 +14,12 @@
 <style>
   :root {
     --bg: #f3f5f4; --ink: #14181c; --muted: #5b666e; --line: #d5dbd8;
-    --go: #17753f; --wait: #b06a00; --stop: #b3261e; --nea-hard: #8c0b05; --card: #ffffff;
+    --go: #17753f; --wait: #b06a00; --stop: #b3261e; --nea-soft: #e53935; --nea-hard: #a80000; --card: #ffffff;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #14181c; --ink: #eef2f0; --muted: #97a3a9; --line: #2b343a;
-      --go: #4fd08a; --wait: #f0b24a; --stop: #ff8a80; --nea-hard: #ff2d20; --card: #1b2126;
+      --go: #4fd08a; --wait: #f0b24a; --stop: #ff8a80; --nea-soft: #ff5247; --nea-hard: #ff0000; --card: #1b2126;
     }
   }
   * { box-sizing: border-box; }
@@ -476,14 +476,16 @@ if (typeof document !== 'undefined') {
     var neaTags = [];
     function neaLine(val, colour, width) {
       var y = base - val / maxv * (base - top);
-      svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: y, y2: y, 'stroke-width': width, style: 'stroke:var(' + colour + ')' }));
+      // Drawn after the bars, with a dark edge, so it never blends into a bar of a similar colour.
+      neaTags.push(svgEl('line', { x1: padX, x2: W - padX, y1: y, y2: y, 'stroke-width': width + 3, style: 'stroke:var(--card)' }));
+      neaTags.push(svgEl('line', { x1: padX, x2: W - padX, y1: y, y2: y, 'stroke-width': width, style: 'stroke:var(' + colour + ')' }));
       var t = svgEl('text', { x: padX, y: y - 4, 'text-anchor': 'start', 'font-size': 10, 'font-weight': 700,
         style: 'fill:var(' + colour + '); stroke:var(--card); stroke-width:3px; paint-order:stroke' });
       t.textContent = 'NEA';
       neaTags.push(t);
     }
-    neaLine(NEA_ELEV, '--stop', 1.5);        // lighter, thinner red
-    neaLine(NEA_HIGH, '--nea-hard', 3);      // deeper, thicker red
+    neaLine(NEA_ELEV, '--nea-soft', 2);        // thinner red
+    neaLine(NEA_HIGH, '--nea-hard', 3.5);      // pure red, thicker
     var ly = base - lineAt / maxv * (base - top);
     svg.appendChild(svgEl('line', { x1: padX, x2: W - padX, y1: ly, y2: ly, 'stroke-dasharray': '4 3', 'stroke-width': 1.5, style: 'stroke:var(--muted)' }));
 
